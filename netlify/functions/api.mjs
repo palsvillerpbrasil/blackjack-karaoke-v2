@@ -403,7 +403,15 @@ async function handleAdmin(action, body, req) {
 
   const admin = await requireAdmin(req);
   if (action === 'admin.me') return { ok: true, admin };
-  if (action === 'admin.dashboard') return { ok: true, ...(await dashboard()) };
+  const collaboratorAllowed = new Set([
+    'admin.tables.list', 'admin.tables.qr',
+    'admin.tabs.list', 'admin.tabs.releaseRange', 'admin.tabs.set', 'admin.tabs.update',
+    'admin.events.list', 'admin.history', 'admin.history.mark'
+  ]);
+  if (admin.role === 'COLLABORATOR' && !collaboratorAllowed.has(action)) {
+    throw new Error('Seu perfil permite somente acessar Mesas, Comandas e Histórico.');
+  }
+  if (action === 'admin.dashboard') { assertFull(admin); return { ok: true, ...(await dashboard()) }; }
   if (action === 'admin.tabs.list') {
     const event = await eventForPublic();
     return { ok: true, event, tabs: await listTabs(event) };
@@ -427,7 +435,6 @@ async function handleAdmin(action, body, req) {
     return { ok: true, tabs: await listTabs(event) };
   }
   if (action === 'admin.tabs.update') {
-    assertFull(admin);
     const event = await eventForPublic();
     if (!event) throw new Error('Não existe evento ativo para editar comandas.');
     const oldTab = text(body.oldTab).toUpperCase();
@@ -441,8 +448,6 @@ async function handleAdmin(action, body, req) {
     if (error) throw error;
     return { ok: true, result: data, tabs: await listTabs(event) };
   }
-  if (admin.role === 'COLLABORATOR') throw new Error('Seu perfil permite somente consultar e liberar/bloquear comandas.');
-
   if (action === 'admin.tables.list') {
     const { data, error } = await db().from('dining_tables').select('id,number,token,active,created_at').order('number');
     if (error) throw error; return { ok: true, tables: data || [] };
