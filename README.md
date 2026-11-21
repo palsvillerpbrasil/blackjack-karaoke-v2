@@ -1,49 +1,134 @@
-# BLACK JACK KARAOKÊ v2 — base de migração
+# KARAOKÊ BLACK JACK — Netlify + Supabase
 
-## Estado desta entrega
-Este pacote inicia a migração Netlify + Supabase. Inclui esquema PostgreSQL, função server-side inicial, formulário público simplificado e páginas de painel/telão em modo seguro. **Não é ainda uma substituição completa do sistema de produção**: painel ADM, autenticação por perfis, fila justa/posição manual transacional, sorteio animado, importador de dados e testes de concorrência precisam ser concluídos antes da virada.
+Aplicação para operação do karaokê com formulário por QR Code, painel administrativo, fila, comandas por evento, perfis por senha, sorteio ponderado e telão.
 
-## Regras já refletidas no modelo
-- `event_tabs` e `tab_releases` têm chave vinculada ao `event_id`: a comanda é independente por noite.
-- O número da comanda não é retornado por `public.status` e não aparece no telão.
-- Sorteio guarda nome, música e mesa em `raffle_winners`; não há campo de comanda na projeção pública.
-- As tabelas não têm políticas RLS públicas; a chave `service_role` fica somente nas variáveis de ambiente das Functions.
-- As páginas públicas usam apenas `/api/`.
+## Endereços
+- Cliente: `/`
+- Administração: `/admin.html`
+- Telão: `/telao.html`
+- API: `/api/`
 
-## Pré-requisitos
-- Conta Netlify e projeto atual preservado.
-- Projeto Supabase Free.
-- Node.js 20+.
+## Infraestrutura existente
+- Repositório: `https://github.com/palsvillerpbrasil/blackjack-karaoke-v2`
+- Netlify: `https://blackjack-karaoke-v2.netlify.app/`
+- Supabase: `https://supabase.com/dashboard/project/soycshrmzgtbodwxflds`
+- Project URL: `https://soycshrmzgtbodwxflds.supabase.co`
 
-## Instalação em ambiente de teste
-1. Crie um projeto no Supabase.
-2. Abra SQL Editor e execute `supabase/schema.sql`.
-3. No Supabase, copie Project URL e `service_role` key. Nunca coloque a service role no navegador ou em repositório público.
-4. No projeto Netlify de teste, configure `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` em Site configuration → Environment variables.
-5. Faça deploy deste diretório como projeto separado ou branch de preview. Não substitua ainda o site de produção.
-6. Verifique `/.netlify/functions/api` via POST com `{"action":"health"}` (ou `/api/`).
-7. Cadastre mesas/eventos de teste diretamente no SQL Editor somente no ambiente de teste.
-8. Faça testes funcionais antes de qualquer importação real.
+## IMPORTANTE — antes de publicar
+1. O projeto existente foi inspecionado e a base anterior tinha formulário público simplificado, `admin.html` provisório e API sem operações administrativas.
+2. Este pacote substitui essa base pela implementação dos fluxos descritos neste README; a ativação depende da migração SQL, das variáveis da Netlify e da importação de dados.
+3. A migração SQL incremental precisa ser executada no Supabase antes de usar a nova API.
+4. O arquivo de logo original enviado foi localizado e incluído sem alterações em `public/assets/logo-original.png`. As três páginas utilizam esse mesmo arquivo e exibem KARAOKÊ acima de BLACK JACK.
+5. A integração GitHub não autorizou gravação direta no repositório durante esta sessão (HTTP 403). Portanto, o ZIP precisa ser enviado ao repositório pelo proprietário ou por uma integração com permissão de escrita. Nenhuma publicação foi feita por este pacote.
 
-## Importação dos dados existentes
-A planilha original continua sendo a fonte autoritativa durante a preparação. Não execute importação em produção ainda. A migração precisa:
-- Exportar abas CONFIGURAÇÕES, MESAS, APRESENTAÇÕES, PARTICIPANTES, EVENTOS e HISTÓRICO.
-- Preservar IDs, tokens de 32 caracteres, timestamps e status.
-- Mapear status antigos (`NAO_CANTADA`, `PENDENTE`, `CANTADA`, `CANCELADA`) para os novos estados.
-- Tratar comandas antigas como dados do evento original, sem criar vínculo permanente com a pessoa.
-- Comparar contagens e hashes antes de liberar o tráfego.
+## 1. Variáveis da Netlify
+No projeto Netlify, em Site configuration / Environment variables, configure os escopos de Functions para:
 
-## Regras que faltam antes da produção
-1. RPC transacional de reserva: lock de evento/comanda, idempotência por requestId, limite de capacidade e bloqueio de participantes pendentes.
-2. Fila automática com rodízio justo por mesa e prioridade manual persistente.
-3. Login por senha com hash Argon2id/bcrypt, sessões curtas e papéis OWNER/ADMIN/COLLABORATOR.
-4. APIs administrativas com checagem de permissão em toda chamada.
-5. Cadastro/edição/liberação de comandas por evento.
-6. Sorteio sem reposição, ponderação por mesa e broadcast de resultados para telão.
-7. Telão com canal realtime ou polling incremental e sem dados de comanda.
-8. Testes automatizados de concorrência, migração, cancelamento, encerramento e reabertura.
-9. Backup automatizado externo e procedimento de restauração. Supabase Free não deve ser tratado como backup.
-10. Revisão de segurança e testes de carga.
+- `SUPABASE_URL` = `https://soycshrmzgtbodwxflds.supabase.co`
+- `SUPABASE_SERVICE_ROLE_KEY` = service_role key do projeto Supabase. Nunca coloque esta chave em HTML, JavaScript público ou GitHub.
+- `ADMIN_SESSION_SECRET` = segredo aleatório longo (pelo menos 32 caracteres; recomendado 64+).
+- `ADMIN_SETUP_KEY` = outra chave aleatória, diferente do segredo de sessão.
+- `PUBLIC_APP_URL` = `https://blackjack-karaoke-v2.netlify.app`
 
-## Importante
-A função `register` desta base é uma implementação inicial de integração, não deve receber tráfego de produção até a reserva ser movida para uma única função SQL transacional. O site antigo e a planilha não foram modificados.
+As duas variáveis Supabase já haviam sido cadastradas anteriormente, mas confirme os valores e o escopo Functions. Não cole a service role em conversas ou arquivos públicos.
+
+Para gerar segredos localmente no Windows PowerShell:
+
+```powershell
+node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
+```
+
+Gere dois valores diferentes e use um em cada variável. Guarde `ADMIN_SETUP_KEY` até concluir o primeiro acesso. Depois de criar o primeiro administrador, você pode remover `ADMIN_SETUP_KEY` das variáveis da Netlify.
+
+## 2. Aplicar a migração no Supabase
+O `schema.sql` anterior já foi executado. Agora abra Supabase → SQL Editor → New query e execute o conteúdo integral de:
+
+`supabase/migrations/20261121_complete_system.sql`
+
+A migração é incremental e não apaga as tabelas nem os registros existentes. Ela acrescenta colunas, índices, estado de fila e funções transacionais. Não execute comandos DROP ou TRUNCATE.
+
+## 3. Publicar no Netlify
+1. Extraia o ZIP.
+2. Envie o conteúdo da pasta do projeto para a raiz do repositório existente `palsvillerpbrasil/blackjack-karaoke-v2`, substituindo os arquivos antigos correspondentes.
+3. Preserve a estrutura de diretórios, especialmente `public/`, `netlify/` e `supabase/`.
+4. Faça commit na branch principal `main`.
+5. Aguarde a publicação automática no Netlify.
+6. Abra `https://blackjack-karaoke-v2.netlify.app/api/` apenas por uma chamada POST `{"action":"health"}`. A função responde JSON; abrir em GET no navegador retorna 405, o que é esperado.
+
+## 4. Primeiro acesso administrativo
+1. Abra `https://blackjack-karaoke-v2.netlify.app/admin.html`.
+2. No primeiro acesso, informe `ADMIN_SETUP_KEY` e crie uma senha com pelo menos 10 caracteres.
+3. Esse primeiro perfil será Administrador 1 (acesso total).
+4. Entre no painel → Administradores.
+5. Crie o segundo perfil Administrador (acesso total) e o perfil Colaborador (somente comandas), cada um com senha diferente.
+6. O login é exclusivamente por senha; não existe campo de usuário.
+7. Após o primeiro administrador ser criado, remova `ADMIN_SETUP_KEY` da Netlify para desativar o bootstrap.
+
+## 5. Operação da noite
+1. Entre em Administração → Dashboard.
+2. Inicie uma nova noite (ela nasce fechada).
+3. Abra o evento.
+4. Entre em Comandas e libere o intervalo usado naquela noite (ex.: 20 até 29).
+5. Entre em Mesas, cadastre as mesas e gere/imprima um QR Code por mesa.
+6. Fixe cada QR Code na mesa correspondente.
+7. Abra `/telao.html` no computador conectado ao televisor.
+8. Os clientes escaneiam o QR Code, informam comanda e nome no primeiro acesso e depois têm o nome recuperado automaticamente naquela noite.
+9. Uma comanda só pode manter uma apresentação pendente. Ela é liberada quando a música é cantada ou cancelada.
+10. No painel, gerencie fila, edição, início, conclusão e cancelamento.
+11. Inicie o sorteio informando quantos vencedores deseja. O telão mostra a animação e revela nome, música e mesa, sem exibir comanda.
+12. Encerre a noite. Para outra noite, crie um novo evento; as comandas e os cadastros pertencem ao evento anterior e não são reutilizados.
+
+## Regras implementadas
+- O bloqueio de segunda inscrição é por comanda e por evento.
+- Comandas são vinculadas ao evento e não à pessoa para sempre.
+- O número da comanda aparece apenas nas telas administrativas e no campo digitado pelo próprio cliente; não é retornado no estado público nem no telão.
+- O painel tem dois perfis de acesso total e um colaborador limitado às comandas.
+- A fila automática roda por mesa, seguindo a mesa posterior à última que cantou; dentro de cada mesa, prioriza menor histórico médio de músicas dos integrantes e depois horário de reserva.
+- A ordem manual persistida fica à frente de novas inscrições até o administrador restaurar o rodízio automático.
+- Sorteio usa pessoas que cantaram, sem repetição no evento e com peso menor para mesas já sorteadas naquela rodada.
+- QR Codes são gerados no backend com a dependência `qrcode`, sem serviço externo de QR.
+
+## Limites e itens que exigem configuração do proprietário
+- O logo original está incluído em `public/assets/logo-original.png` sem redesenho ou alteração.
+- A integração GitHub recusou gravações diretas nesta sessão (HTTP 403). O pacote está pronto para upload pelo proprietário no repositório existente.
+- A migração dos dados reais ainda precisa ser executada pelo script `scripts/import-legacy.mjs`, após aplicar a migração SQL e exportar a planilha para XLSX. A planilha foi acessada e os totais estão registrados abaixo.
+- Netlify/Supabase podem ter limites de execução e uso no plano gratuito; a disponibilidade depende dos limites atuais das contas.
+
+## Segurança
+A chave service_role só é usada pela Netlify Function. O frontend nunca recebe a chave. As tabelas têm RLS habilitado e as funções SECURITY DEFINER da migração são restritas ao papel `service_role`. Senhas administrativas usam scrypt com salt aleatório; sessões são assinadas por HMAC e expiram em 8 horas.
+
+## Migração da planilha original — estrutura conferida
+A planilha `Karaokê` foi exportada e suas abas foram inspecionadas. O conteúdo encontrado foi:
+
+| Aba | Registros de dados (sem cabeçalho) |
+|---|---:|
+| MESAS | 17 |
+| APRESENTAÇÕES | 25 |
+| PARTICIPANTES | 16 |
+| EVENTOS | 5 |
+| HISTÓRICO | 137 |
+
+Nas apresentações antigas, 17 estavam como `CANTADA` e 8 como `NAO_CANTADA`. Duas apresentações antigas não tinham comanda; a migração permite `tab_number` nulo para preservar esses registros sem inventar números. A noite ativa encontrada foi **Melhores do Ano**, com capacidade atual **20**. As 17 mesas estavam ativas e tinham tokens de 32 caracteres válidos.
+
+### Como importar sem publicar dados pessoais no GitHub
+1. No Google Sheets, abra a planilha `Karaokê` e use Arquivo → Fazer download → Microsoft Excel (.xlsx).
+2. Salve o arquivo localmente como `Karaokê.xlsx`, na pasta raiz extraída deste projeto. **Não envie esse arquivo ao GitHub**, pois contém nomes, histórico e um PIN legado.
+3. Abra PowerShell nessa pasta e execute:
+
+```powershell
+npm install
+$env:SUPABASE_URL="https://soycshrmzgtbodwxflds.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="COLE_A_CHAVE_SERVICE_ROLE_LOCALMENTE"
+node scripts/import-legacy.mjs ".\Karaokê.xlsx"
+```
+
+4. Confira o resumo de importação exibido no terminal.
+5. O script mantém IDs e tokens das mesas, cria mapeamento UUID para os IDs textuais antigos de evento e importa apresentações, estatísticas e histórico. A importação é idempotente pelos identificadores legados.
+6. O script **não migra** `CONFIGURAÇÕES.pin_admin` (o valor encontrado era um PIN numérico em texto puro), não importa a URL antiga e não libera intervalos de comandas automaticamente. Configure as comandas no painel e crie senhas administrativas novas.
+
+A planilha original permanece intacta. O script não apaga abas nem altera a origem.
+
+## Segurança de login
+O login aceita somente a senha. O backend verifica o hash scrypt de cada perfil ativo, assina sessão HMAC com expiração de 8 horas e limita tentativas por IP: a partir de 8 falhas em uma janela de 15 minutos, o acesso fica bloqueado por 15 minutos. O hash do IP é armazenado, não o endereço bruto.
+
+**QR Codes antigos:** os tokens das 17 mesas são preservados na importação, mas os QR Codes impressos anteriormente apontam para o domínio antigo `karaokeblackjack.netlify.app`. Como o novo sistema está em `blackjack-karaoke-v2.netlify.app`, gere e imprima novamente os QR Codes pelo painel para apontar ao novo endereço. O token de cada mesa permanece igual, salvo se você escolher regenerá-lo.
