@@ -85,19 +85,31 @@ function saoPauloDateString() {
 }
 async function calendarEventForDate(date = saoPauloDateString()) {
   const { data, error } = await db().from('karaoke_calendar')
-    .select('id,event_date,title,presenter_name,has_karaoke')
+    .select('id,event_date,title,presenter_name,start_time,has_karaoke')
     .eq('event_date', date).eq('has_karaoke', true).maybeSingle();
   if (error) throw error;
   return data || null;
 }
 async function nextCalendarEvent(afterToday = false) {
   const today = saoPauloDateString();
-  let query = db().from('karaoke_calendar').select('id,event_date,title,presenter_name,has_karaoke')
+  let query = db().from('karaoke_calendar').select('id,event_date,title,presenter_name,start_time,has_karaoke')
     .eq('has_karaoke', true).order('event_date', { ascending: true }).limit(1);
   query = afterToday ? query.gt('event_date', today) : query.gte('event_date', today);
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
   return data || null;
+}
+async function upcomingCalendarEvents(afterToday = false, limit = 8) {
+  const today = saoPauloDateString();
+  let query = db().from('karaoke_calendar')
+    .select('id,event_date,title,presenter_name,start_time,has_karaoke')
+    .eq('has_karaoke', true)
+    .order('event_date', { ascending: true })
+    .limit(limit);
+  query = afterToday ? query.gt('event_date', today) : query.gte('event_date', today);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
 }
 async function eventForPublic() {
   const event = await latestEvent();
@@ -189,12 +201,20 @@ function publicPresentation(p) {
 }
 async function publicStatus(token) {
   const table = await validateTableToken(token);
-  const event = await eventForPublic();
-  if (!event) return { ok: true, table: table.number, event: null, open: false, available: 0, capacity: 0, last: null, current: null, next: null };
+  const latest = await latestEvent();
+  if (!latest || ['CLOSED', 'FINISHED'].includes(latest.status)) {
+    // Depois de encerrar a noite, não repetir a data de hoje como se fosse a próxima.
+    const upcomingEvents = await upcomingCalendarEvents(Boolean(latest && latest.status === 'FINISHED'), 8);
+    return { ok: true, table: table.number, event: null, status: latest?.status || 'NO_EVENT', open: false,
+      showUpcomingEvents: true, upcomingEvents, available: 0, capacity: 0, last: null, current: null, next: null };
+  }
+  const event = latest;
   const q = await queueForEvent(event);
   const { count, error } = await db().from('presentations').select('id', { count: 'exact', head: true }).eq('event_id', event.id).in('status', ['PENDING', 'PLAYING', 'SUNG']);
   if (error) throw error;
-  return { ok: true, table: table.number, event: event.name, status: event.status, open: event.status === 'OPEN', capacity: event.capacity, available: Math.max(0, event.capacity - (count || 0)), last: publicPresentation(q.last), current: publicPresentation(q.current), next: publicPresentation(q.queue[0]) };
+  return { ok: true, table: table.number, event: event.name, status: event.status, open: event.status === 'OPEN',
+    showUpcomingEvents: false, upcomingEvents: [], capacity: event.capacity,
+    available: Math.max(0, event.capacity - (count || 0)), last: publicPresentation(q.last), current: publicPresentation(q.current), next: publicPresentation(q.queue[0]) };
 }
 async function lookupTab(token, tabValue) {
   const table = await validateTableToken(token);
@@ -444,7 +464,7 @@ async function handleAdmin(action, body, req) {
     assertFull(admin);
     if (action === 'admin.calendar.list') {
       const { data, error } = await db().from('karaoke_calendar')
-        .select('id,event_date,title,presenter_name,has_karaoke,created_by,updated_at')
+        .select('id,event_date,title,presenter_name,start_time,has_karaoke,created_by,updated_at')
         .order('event_date', { ascending: true });
       if (error) throw error;
       return { ok: true, events: data || [] };
@@ -455,12 +475,14 @@ async function handleAdmin(action, body, req) {
       const hasKaraoke = body.hasKaraoke === true;
       const title = hasKaraoke ? text(body.title) : null;
       const presenterName = hasKaraoke ? text(body.presenterName) : null;
+      const startTime = hasKaraoke ? text(body.startTime || '19:00') : '19:00';
       if (hasKaraoke && (!title || title.length > 100)) throw new Error('Informe o título do karaokê (até 100 caracteres).');
       if (presenterName && presenterName.length > 80) throw new Error('O nome do apresentador deve ter até 80 caracteres.');
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) throw new Error('Informe um horário válido.');
       const { data, error } = await db().from('karaoke_calendar').upsert({
-        event_date: eventDate, has_karaoke: hasKaraoke, title, presenter_name: presenterName || null,
+        event_date: eventDate, has_karaoke: hasKaraoke, title, presenter_name: presenterName || null, start_time: startTime,
         created_by: admin.display_name, updated_at: new Date().toISOString()
-      }, { onConflict: 'event_date' }).select('id,event_date,title,presenter_name,has_karaoke,created_by,updated_at').single();
+      }, { onConflict: 'event_date' }).select('id,event_date,title,presenter_name,start_time,has_karaoke,created_by,updated_at').single();
       if (error) throw error;
       await audit(admin.display_name, 'CALENDAR_EVENT_SAVED', { event_date: eventDate, has_karaoke: hasKaraoke, title, presenter_name: presenterName });
       return { ok: true, event: data };
@@ -804,11 +826,9 @@ export default async function handler(req) {
       if (error) throw error; return json(200, { ok: true, service: 'blackjack-karaoke-v2' });
     }
     if (action === 'public.calendar.list') {
-      const { data, error } = await db().from('karaoke_calendar')
-        .select('event_date,title,presenter_name,has_karaoke')
-        .eq('has_karaoke', true).order('event_date', { ascending: true });
-      if (error) throw error;
-      return json(200, { ok: true, events: data || [] });
+      const latest = await latestEvent();
+      const events = await upcomingCalendarEvents(Boolean(latest && latest.status === 'FINISHED'), 100);
+      return json(200, { ok: true, events });
     }
     if (action === 'public.status') return json(200, await publicStatus(body.token));
     if (action === 'public.screenStatus') return json(200, await screenStatus());

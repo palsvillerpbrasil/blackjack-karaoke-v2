@@ -34,3 +34,14 @@ Nova migração incremental: `supabase/migrations/20261121_calendar_presenter_we
 - A mensagem usa o título e o apresentador programados para a data atual e permanece até o início da primeira apresentação.
 - Ao iniciar a primeira música, o telão retorna automaticamente ao painel normal.
 - Migração incremental; não remove dados existentes.
+
+
+## Atualização funcional — Lista pública de próximos karaokês
+
+Nova migração incremental: `supabase/migrations/20261121_calendar_public_list_time.sql`.
+
+- A página pública de programação passa a exibir somente uma lista das datas futuras com karaokê, sem calendário mensal.
+- A tela inicial do QR Code mostra os próximos karaokês quando não há evento aberto ou quando a noite foi encerrada; ao abrir o evento, retorna ao formulário de identificação.
+- Cada programação passa a ter horário de início configurável, com padrão de 19h para datas já cadastradas e novas datas.
+- A lista apresenta dia da semana, data, horário, título e apresentador.
+- A migração apenas adiciona a coluna `start_time`; não apaga nem altera datas, títulos ou apresentadores existentes.
