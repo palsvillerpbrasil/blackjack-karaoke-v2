@@ -115,7 +115,10 @@ async function queueForEvent(event) {
   for (const stat of stats || []) history.set(`${stat.table_id}|${stat.normalized_name}`, Number(stat.songs_sung || 0));
   const current = (rows || []).find(x => x.status === 'PLAYING') || null;
   const pending = (rows || []).filter(x => x.status === 'PENDING');
-  const manual = pending.filter(x => x.manual_rank !== null && x.manual_rank !== undefined).sort((a, b) => Number(a.manual_rank) - Number(b.manual_rank));
+  // Ajustes manuais são exceções pontuais: o rodízio automático continua
+  // ordenando todas as outras apresentações e preenchendo os espaços livres.
+  const manual = pending.filter(x => x.manual_position !== null && x.manual_position !== undefined || x.manual_rank !== null && x.manual_rank !== undefined)
+    .sort((a, b) => Number(a.manual_position ?? (Number(a.manual_rank) / 1000)) - Number(b.manual_position ?? (Number(b.manual_rank) / 1000)) || Number(a.manual_rank || 0) - Number(b.manual_rank || 0));
   const manualIds = new Set(manual.map(x => x.id));
   const auto = pending.filter(x => !manualIds.has(x.id));
   const tableGroups = new Map();
@@ -142,16 +145,22 @@ async function queueForEvent(event) {
     if (!added) break;
     round++;
   }
-  const ordered = [...manual, ...automaticOrder].map((p, index) => ({
+  const mergedOrder = automaticOrder.slice();
+  for (const p of manual) {
+    const desired = Number(p.manual_position ?? (Number(p.manual_rank) / 1000) ?? 1);
+    const index = Math.max(0, Math.min(mergedOrder.length, (Number.isFinite(desired) ? desired : 1) - 1));
+    mergedOrder.splice(index, 0, p);
+  }
+  const ordered = mergedOrder.map((p, index) => ({
     ...p,
     position: index + 1,
-    round: p.manual_rank !== null && p.manual_rank !== undefined ? 'Manual' : (p._round || 1),
+    round: manualIds.has(p.id) ? 'Manual' : (p._round || 1),
     history_count: (participantMap.get(p.id) || []).reduce((sum, m) => sum + (history.get(`${m.table_id}|${m.normalized_name}`) || 0), 0),
     participants: (participantMap.get(p.id) || []).map(m => m.name)
   }));
   const last = (rows || []).filter(x => x.status === 'SUNG').sort((a, b) => new Date(b.sung_at || b.created_at) - new Date(a.sung_at || a.created_at))[0] || null;
   const clean = p => p ? ({ id: p.id, table_number: p.table_number, tab_number: p.tab_number, p1: p.p1, p2: p.p2, p3: p.p3, song: p.song, status: p.status, created_at: p.created_at, started_at: p.started_at, sung_at: p.sung_at }) : null;
-  return { current: clean(current), last: clean(last), queue: ordered, manualMode: Boolean(state?.manual_mode), cursor };
+  return { current: clean(current), last: clean(last), queue: ordered, manualMode: Boolean(state?.manual_mode), manualCount: manual.length, automaticActive: true, cursor };
 }
 function publicPresentation(p) {
   if (!p) return null;
@@ -182,13 +191,22 @@ async function lookupTab(token, tabValue) {
   return { ok: true, table: table.number, registered: Boolean(existing), name: existing?.participant_name || '', pending: Boolean(pending), can_submit: !pending };
 }
 async function identifyTab(body) {
-  const { data, error } = await db().rpc('bj_identify_tab', { p_token: text(body.token).toLowerCase(), p_tab: text(body.tab).toUpperCase(), p_name: text(body.name) });
+  const tab = text(body.tab).toUpperCase();
+  const existing = await lookupTab(body.token, tab);
+  // A comanda já cadastrada sempre usa o nome salvo no servidor; o cliente
+  // não consegue sobrescrevê-lo nem mesmo alterando a requisição manualmente.
+  const canonicalName = existing.registered ? existing.name : text(body.name);
+  const { data, error } = await db().rpc('bj_identify_tab', { p_token: text(body.token).toLowerCase(), p_tab: tab, p_name: canonicalName });
   if (error) throw error;
-  return data;
+  return { ...data, name: existing.registered ? existing.name : data.name };
 }
 async function registerPresentation(body) {
+  const tab = text(body.tab).toUpperCase();
+  const identity = await lookupTab(body.token, tab);
+  if (!identity.registered) throw new Error('Identifique esta comanda antes de enviar uma música.');
+  if (identity.pending) throw new Error('Esta comanda já possui uma apresentação aguardando ou tocando.');
   const { data, error } = await db().rpc('bj_register_presentation', {
-    p_token: text(body.token).toLowerCase(), p_tab: text(body.tab).toUpperCase(), p_p1: text(body.p1),
+    p_token: text(body.token).toLowerCase(), p_tab: tab, p_p1: identity.name,
     p_p2: text(body.p2), p_p3: text(body.p3), p_song: text(body.song), p_request_id: text(body.requestId)
   });
   if (error) throw error;
@@ -247,7 +265,7 @@ async function dashboard() {
 }
 
 async function adminQueue(event) {
-  if (!event) return { current: null, last: null, queue: [], manualMode: false };
+  if (!event) return { current: null, last: null, queue: [], manualMode: false, manualCount: 0, automaticActive: true };
   return queueForEvent(event);
 }
 async function listTabs(event) {
@@ -398,6 +416,21 @@ async function handleAdmin(action, body, req) {
     await audit(admin.display_name, enabled ? 'TABS_RELEASED' : 'TABS_BLOCKED', { values }, event.id);
     return { ok: true, tabs: await listTabs(event) };
   }
+  if (action === 'admin.tabs.update') {
+    assertFull(admin);
+    const event = await eventForPublic();
+    if (!event) throw new Error('Não existe evento ativo para editar comandas.');
+    const oldTab = text(body.oldTab).toUpperCase();
+    const newTab = text(body.tab).toUpperCase();
+    const name = text(body.name);
+    if (!/^[A-Z0-9]{1,10}$/.test(oldTab) || !/^[A-Z0-9]{1,10}$/.test(newTab)) throw new Error('Comanda inválida. Use letras e números, até 10 caracteres.');
+    if (name.length < 2 || name.length > 70) throw new Error('O nome deve ter entre 2 e 70 caracteres.');
+    const { data, error } = await db().rpc('bj_admin_update_tab', {
+      p_event_id: event.id, p_old_tab: oldTab, p_new_tab: newTab, p_name: name, p_actor: admin.display_name
+    });
+    if (error) throw error;
+    return { ok: true, result: data, tabs: await listTabs(event) };
+  }
   if (admin.role === 'COLLABORATOR') throw new Error('Seu perfil permite somente consultar e liberar/bloquear comandas.');
 
   if (action === 'admin.tables.list') {
@@ -470,13 +503,37 @@ async function handleAdmin(action, body, req) {
   }
   if (action === 'admin.queue.reorder') {
     const event = await eventForPublic(); if (!event) throw new Error('Não existe evento ativo.');
-    const { data, error } = await db().rpc('bj_queue_reorder', { p_event_id: event.id, p_ids: body.ids || [], p_actor: admin.display_name });
+    const q = await adminQueue(event);
+    let presentationId = text(body.id);
+    let position = Number(body.position);
+    // Compatibilidade com versões anteriores do painel: converte uma
+    // reordenação por arraste em um único ajuste manual, sem fixar a fila inteira.
+    if (!presentationId && Array.isArray(body.ids)) {
+      const current = q.queue.map(x => x.id);
+      const desired = body.ids.map(text);
+      if (desired.length !== current.length || new Set(desired).size !== current.length || desired.some(x => !current.includes(x))) throw new Error('A fila mudou. Atualize o painel e tente novamente.');
+      outer: for (const candidate of current) {
+        const rest = current.filter(x => x !== candidate);
+        for (let target = 0; target < current.length; target++) {
+          const attempt = rest.slice(); attempt.splice(target, 0, candidate);
+          if (attempt.every((x, i) => x === desired[i])) { presentationId = candidate; position = target + 1; break outer; }
+        }
+      }
+    }
+    if (!presentationId || !Number.isInteger(position) || position < 1) throw new Error('Não foi possível identificar a apresentação movida.');
+    const { data, error } = await db().rpc('bj_queue_pin_position', { p_event_id: event.id, p_presentation_id: presentationId, p_position: position, p_actor: admin.display_name });
     if (error) throw error; return { ok: true, ...(await adminQueue(event)), result: data };
   }
   if (action === 'admin.queue.auto') {
     const event = await eventForPublic(); if (!event) throw new Error('Não existe evento ativo.');
+    // Reativa o rodízio para as inscrições sem prioridade manual; não apaga os ajustes já feitos.
     const { error } = await db().rpc('bj_queue_auto', { p_event_id: event.id, p_actor: admin.display_name });
     if (error) throw error; return { ok: true, ...(await adminQueue(event)) };
+  }
+  if (action === 'admin.queue.unpin') {
+    const event = await eventForPublic(); if (!event) throw new Error('Não existe evento ativo.');
+    const { data, error } = await db().rpc('bj_queue_unpin_position', { p_event_id: event.id, p_presentation_id: text(body.id), p_actor: admin.display_name });
+    if (error) throw error; return { ok: true, ...(await adminQueue(event)), result: data };
   }
   if (action === 'admin.queue.startNext') {
     const event = await eventForPublic(); if (!event) throw new Error('Não existe evento ativo.');
@@ -487,12 +544,11 @@ async function handleAdmin(action, body, req) {
   }
   if (action === 'admin.queue.move') {
     const event = await eventForPublic(); if (!event) throw new Error('Não existe evento ativo.');
-    const q = await adminQueue(event); const ids = q.queue.map(x => x.id); const from = ids.indexOf(text(body.id));
-    if (from < 0) throw new Error('Apresentação não encontrada na fila.');
-    const requestedPosition = Number(body.position); if (!Number.isInteger(requestedPosition) || requestedPosition < 1) throw new Error('Informe uma posição válida.');
-    const target = Math.max(0, Math.min(ids.length - 1, requestedPosition - 1));
-    const [moved] = ids.splice(from, 1); ids.splice(target, 0, moved);
-    const { error } = await db().rpc('bj_queue_reorder', { p_event_id: event.id, p_ids: ids, p_actor: admin.display_name });
+    const q = await adminQueue(event);
+    if (!q.queue.some(x => x.id === text(body.id))) throw new Error('Apresentação não encontrada na fila.');
+    const requestedPosition = Number(body.position);
+    if (!Number.isInteger(requestedPosition) || requestedPosition < 1) throw new Error('Informe uma posição válida.');
+    const { error } = await db().rpc('bj_queue_pin_position', { p_event_id: event.id, p_presentation_id: text(body.id), p_position: requestedPosition, p_actor: admin.display_name });
     if (error) throw error; return { ok: true, ...(await adminQueue(event)) };
   }
   if (action === 'admin.presentation.action') {
@@ -532,7 +588,7 @@ async function handleAdmin(action, body, req) {
 
   if (action === 'admin.history') {
     const eventId = text(body.eventId);
-    let query = db().from('presentations').select('id,event_id,table_number,tab_number,p1,p2,p3,song,status,created_at,started_at,sung_at,cancelled_at').order('created_at', { ascending: false }).limit(300);
+    let query = db().from('presentations').select('id,event_id,table_number,tab_number,p1,p2,p3,song,sung_at').eq('status', 'SUNG').order('sung_at', { ascending: false, nullsFirst: false }).limit(1000);
     if (eventId) query = query.eq('event_id', eventId);
     const { data, error } = await query; if (error) throw error;
     return { ok: true, presentations: data || [] };

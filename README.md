@@ -132,3 +132,15 @@ A planilha original permanece intacta. O script não apaga abas nem altera a ori
 O login aceita somente a senha. O backend verifica o hash scrypt de cada perfil ativo, assina sessão HMAC com expiração de 8 horas e limita tentativas por IP: a partir de 8 falhas em uma janela de 15 minutos, o acesso fica bloqueado por 15 minutos. O hash do IP é armazenado, não o endereço bruto.
 
 **QR Codes antigos:** os tokens das 17 mesas são preservados na importação, mas os QR Codes impressos anteriormente apontam para o domínio antigo `karaokeblackjack.netlify.app`. Como o novo sistema está em `blackjack-karaoke-v2.netlify.app`, gere e imprima novamente os QR Codes pelo painel para apontar ao novo endereço. O token de cada mesa permanece igual, salvo se você escolher regenerá-lo.
+
+
+## Ajustes de fila, identificação e histórico (21/11/2026)
+
+Para atualizar uma instalação existente, execute no SQL Editor do Supabase o arquivo `supabase/migrations/20261121_queue_tabs_history.sql` antes de publicar a nova versão do site.
+
+- A comanda identifica a pessoa uma única vez por evento, independentemente da mesa/QR Code utilizado. O nome já cadastrado é carregado como somente leitura no acesso do cliente.
+- O último número de comanda usado naquele QR Code é lembrado no navegador. Ao atualizar a página, a inscrição é consultada novamente e a tela libera uma nova música assim que a apresentação anterior estiver cantada ou cancelada.
+- Somente perfis OWNER/ADMIN podem corrigir o nome ou trocar a comanda; a troca atualiza também as apresentações e estatísticas vinculadas. A nova comanda precisa estar liberada.
+- A fila permanece automática por mesa. Uma alteração manual fixa somente a apresentação movida; as demais continuam no rodízio automático. O comando de automático não apaga prioridades manuais, e cada prioridade pode ser removida individualmente pelo botão `Automático`.
+- O histórico lista apenas apresentações cantadas e usa `sung_at`, o horário em que a música foi marcada como cantada.
+- O logo `public/assets/logo-original.png` mantém o desenho circular original, com transparência fora do círculo para remover o fundo quadrado.
