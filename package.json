@@ -1,0 +1,17 @@
+{
+  "name": "blackjack-karaoke-v2",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "netlify dev",
+    "build": "echo Static site ready",
+    "migrate:check": "node scripts/check-migration.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1"
+  },
+  "devDependencies": {
+    "netlify-cli": "^23.0.0"
+  }
+}
