@@ -22,3 +22,15 @@ Nova migração incremental: `supabase/migrations/20261121_queue_tabs_history.sq
 - Permite correção administrativa de nome/comanda com atualização transacional do histórico da pessoa.
 - Mantém o histórico de apresentações cantadas usando o horário `sung_at`.
 - Não apaga eventos, mesas, tokens, comandas, apresentações ou registros históricos existentes.
+
+
+## Atualização funcional — Calendário, apresentador e boas-vindas
+
+Nova migração incremental: `supabase/migrations/20261121_calendar_presenter_welcome.sql`.
+
+- Adiciona calendário mensal com título da noite e nome do apresentador.
+- Disponibiliza a programação em `public/calendario.html`, com visualização mensal e lista de próximos eventos.
+- Adiciona a mensagem animada de boas-vindas ao telão quando o evento é aberto.
+- A mensagem usa o título e o apresentador programados para a data atual e permanece até o início da primeira apresentação.
+- Ao iniciar a primeira música, o telão retorna automaticamente ao painel normal.
+- Migração incremental; não remove dados existentes.

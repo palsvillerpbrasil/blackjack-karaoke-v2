@@ -236,8 +236,13 @@ async function registerPresentation(body) {
 
 async function screenStatus() {
   const event = await eventForPublic();
-  if (!event) return { ok: true, event: null, capacity: 0, available: 0, current: null, last: null, next: null, queue: [], raffle: null };
-  const q = await queueForEvent(event);
+  if (!event) return { ok: true, event: null, capacity: 0, available: 0, current: null, last: null, next: null, queue: [], raffle: null, welcome: false };
+  const [q, calendarEvent, startedResult] = await Promise.all([
+    queueForEvent(event),
+    calendarEventForDate(),
+    db().from('presentations').select('id', { count: 'exact', head: true }).eq('event_id', event.id).or('started_at.not.is.null,status.eq.SUNG')
+  ]);
+  if (startedResult.error) throw startedResult.error;
   // Remaining presentation slots follow the same rule as the customer page:
   // pending, currently playing and already sung presentations consume a slot.
   const { count: usedCount, error: countError } = await db()
@@ -271,7 +276,18 @@ async function screenStatus() {
     }
     rafflePayload = { id: raffle.id, status: raffle.status, requested_winners: raffle.requested_winners, reveal_at: raffle.reveal_at, revealed: raffle.status === 'FINISHED' && raffle.results_ready, spinCandidates, winners };
   }
-  return { ok: true, event: { name: event.name, status: event.status }, capacity, available, current: publicPresentation(q.current), last: publicPresentation(q.last), next: publicPresentation(q.queue[0]), raffle: rafflePayload };
+  const scheduledTitle = calendarEvent?.title || event.name;
+  const welcome = event.status !== 'CLOSED' && !q.current && Number(startedResult.count || 0) === 0;
+  return {
+    ok: true,
+    event: { name: scheduledTitle, status: event.status },
+    welcome,
+    welcomeTitle: scheduledTitle,
+    presenterName: calendarEvent?.presenter_name || '',
+    eventDate: calendarEvent?.event_date || saoPauloDateString(),
+    capacity, available,
+    current: publicPresentation(q.current), last: publicPresentation(q.last), next: publicPresentation(q.queue[0]), raffle: rafflePayload
+  };
 }
 
 async function dashboard() {
@@ -424,6 +440,40 @@ async function handleAdmin(action, body, req) {
 
   const admin = await requireAdmin(req);
   if (action === 'admin.me') return { ok: true, admin };
+  if (action.startsWith('admin.calendar.')) {
+    assertFull(admin);
+    if (action === 'admin.calendar.list') {
+      const { data, error } = await db().from('karaoke_calendar')
+        .select('id,event_date,title,presenter_name,has_karaoke,created_by,updated_at')
+        .order('event_date', { ascending: true });
+      if (error) throw error;
+      return { ok: true, events: data || [] };
+    }
+    if (action === 'admin.calendar.save') {
+      const eventDate = text(body.eventDate);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate) || new Date(`${eventDate}T12:00:00Z`).toISOString().slice(0, 10) !== eventDate) throw new Error('Selecione uma data válida.');
+      const hasKaraoke = body.hasKaraoke === true;
+      const title = hasKaraoke ? text(body.title) : null;
+      const presenterName = hasKaraoke ? text(body.presenterName) : null;
+      if (hasKaraoke && (!title || title.length > 100)) throw new Error('Informe o título do karaokê (até 100 caracteres).');
+      if (presenterName && presenterName.length > 80) throw new Error('O nome do apresentador deve ter até 80 caracteres.');
+      const { data, error } = await db().from('karaoke_calendar').upsert({
+        event_date: eventDate, has_karaoke: hasKaraoke, title, presenter_name: presenterName || null,
+        created_by: admin.display_name, updated_at: new Date().toISOString()
+      }, { onConflict: 'event_date' }).select('id,event_date,title,presenter_name,has_karaoke,created_by,updated_at').single();
+      if (error) throw error;
+      await audit(admin.display_name, 'CALENDAR_EVENT_SAVED', { event_date: eventDate, has_karaoke: hasKaraoke, title, presenter_name: presenterName });
+      return { ok: true, event: data };
+    }
+    if (action === 'admin.calendar.delete') {
+      const eventDate = text(body.eventDate);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) throw new Error('Data inválida.');
+      const { error } = await db().from('karaoke_calendar').delete().eq('event_date', eventDate);
+      if (error) throw error;
+      await audit(admin.display_name, 'CALENDAR_EVENT_DELETED', { event_date: eventDate });
+      return { ok: true };
+    }
+  }
   const collaboratorAllowed = new Set([
     'admin.tables.list', 'admin.tables.qr',
     'admin.tabs.list', 'admin.tabs.releaseRange', 'admin.tabs.set', 'admin.tabs.update',
@@ -516,7 +566,9 @@ async function handleAdmin(action, body, req) {
     }
     if (!latest) throw new Error('Nenhum evento cadastrado. Crie uma nova noite.');
     if (action === 'admin.events.open' || action === 'admin.events.reopen') {
-      const { data, error } = await db().from('events').update({ status: 'OPEN', opened_at: new Date().toISOString() }).eq('id', latest.id).select('*').single();
+      const scheduled = await calendarEventForDate();
+      const eventUpdate = { status: 'OPEN', opened_at: new Date().toISOString(), ...(scheduled?.title ? { name: scheduled.title } : {}) };
+      const { data, error } = await db().from('events').update(eventUpdate).eq('id', latest.id).select('*').single();
       if (error) throw error; await audit(admin.display_name, 'EVENT_OPENED', {}, latest.id); return { ok: true, event: data, dashboard: await dashboard() };
     }
     if (action === 'admin.events.close') {
@@ -750,6 +802,13 @@ export default async function handler(req) {
     if (action === 'health') {
       const { error } = await db().from('events').select('id').limit(1);
       if (error) throw error; return json(200, { ok: true, service: 'blackjack-karaoke-v2' });
+    }
+    if (action === 'public.calendar.list') {
+      const { data, error } = await db().from('karaoke_calendar')
+        .select('event_date,title,presenter_name,has_karaoke')
+        .eq('has_karaoke', true).order('event_date', { ascending: true });
+      if (error) throw error;
+      return json(200, { ok: true, events: data || [] });
     }
     if (action === 'public.status') return json(200, await publicStatus(body.token));
     if (action === 'public.screenStatus') return json(200, await screenStatus());

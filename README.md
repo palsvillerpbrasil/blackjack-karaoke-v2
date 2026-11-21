@@ -144,3 +144,12 @@ Para atualizar uma instalação existente, execute no SQL Editor do Supabase o a
 - A fila permanece automática por mesa. Uma alteração manual fixa somente a apresentação movida; as demais continuam no rodízio automático. O comando de automático não apaga prioridades manuais, e cada prioridade pode ser removida individualmente pelo botão `Automático`.
 - O histórico lista apenas apresentações cantadas e usa `sung_at`, o horário em que a música foi marcada como cantada.
 - O logo `public/assets/logo-original.png` mantém o desenho circular original, com transparência fora do círculo para remover o fundo quadrado.
+
+
+## Calendário público e mensagem de boas-vindas do telão
+
+Para habilitar a programação mensal, o nome do apresentador e a mensagem de boas-vindas antes da primeira música, execute no SQL Editor do Supabase a migração `supabase/migrations/20261121_calendar_presenter_welcome.sql`. A migração é incremental e não apaga dados existentes.
+
+No painel administrativo, abra **Configurações > Calendário de Karaokê**. Selecione uma data, marque se haverá karaokê, informe o título e, opcionalmente, o nome do apresentador. Os clientes podem consultar a programação em `/calendario.html`.
+
+Ao abrir o evento no painel, o telão mostra uma mensagem de boas-vindas usando o título e o apresentador programados para a data atual. A mensagem permanece até o início da primeira apresentação; depois disso, o telão volta ao quadro normal de músicas.
