@@ -1,17 +1,22 @@
 {
   "name": "blackjack-karaoke-v2",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "netlify dev",
-    "build": "echo Static site ready",
-    "migrate:check": "node scripts/check-migration.mjs"
+    "build": "node -e \"console.log('BLACK JACK KARAOKE: arquivos estaticos prontos para deploy')\"",
+    "import:legacy": "node scripts/import-legacy.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.49.1"
+    "@supabase/supabase-js": "^2.49.1",
+    "qrcode": "^1.5.4",
+    "exceljs": "^4.4.0"
   },
   "devDependencies": {
     "netlify-cli": "^23.0.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
