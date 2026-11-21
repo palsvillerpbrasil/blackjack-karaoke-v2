@@ -215,8 +215,18 @@ async function registerPresentation(body) {
 
 async function screenStatus() {
   const event = await eventForPublic();
-  if (!event) return { ok: true, event: null, current: null, last: null, next: null, queue: [], raffle: null };
+  if (!event) return { ok: true, event: null, capacity: 0, available: 0, current: null, last: null, next: null, queue: [], raffle: null };
   const q = await queueForEvent(event);
+  // Remaining presentation slots follow the same rule as the customer page:
+  // pending, currently playing and already sung presentations consume a slot.
+  const { count: usedCount, error: countError } = await db()
+    .from('presentations')
+    .select('id', { count: 'exact', head: true })
+    .eq('event_id', event.id)
+    .in('status', ['PENDING', 'PLAYING', 'SUNG']);
+  if (countError) throw countError;
+  const capacity = Number(event.capacity || 0);
+  const available = Math.max(0, capacity - (usedCount || 0));
   const { data: raffle, error: re } = await db().from('raffles').select('id,status,requested_winners,created_at,reveal_at,results_ready').eq('event_id', event.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
   if (re) throw re;
   let rafflePayload = null;
@@ -240,7 +250,7 @@ async function screenStatus() {
     }
     rafflePayload = { id: raffle.id, status: raffle.status, requested_winners: raffle.requested_winners, reveal_at: raffle.reveal_at, revealed: raffle.status === 'FINISHED' && raffle.results_ready, spinCandidates, winners };
   }
-  return { ok: true, event: { name: event.name, status: event.status }, current: publicPresentation(q.current), last: publicPresentation(q.last), next: publicPresentation(q.queue[0]), raffle: rafflePayload };
+  return { ok: true, event: { name: event.name, status: event.status }, capacity, available, current: publicPresentation(q.current), last: publicPresentation(q.last), next: publicPresentation(q.queue[0]), raffle: rafflePayload };
 }
 
 async function dashboard() {
