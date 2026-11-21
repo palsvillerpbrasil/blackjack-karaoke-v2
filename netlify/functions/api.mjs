@@ -78,6 +78,27 @@ async function latestEvent() {
   if (error) throw error;
   return data;
 }
+function saoPauloDateString() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+async function calendarEventForDate(date = saoPauloDateString()) {
+  const { data, error } = await db().from('karaoke_calendar')
+    .select('id,event_date,title,presenter_name,has_karaoke')
+    .eq('event_date', date).eq('has_karaoke', true).maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+async function nextCalendarEvent(afterToday = false) {
+  const today = saoPauloDateString();
+  let query = db().from('karaoke_calendar').select('id,event_date,title,presenter_name,has_karaoke')
+    .eq('has_karaoke', true).order('event_date', { ascending: true }).limit(1);
+  query = afterToday ? query.gt('event_date', today) : query.gte('event_date', today);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
 async function eventForPublic() {
   const event = await latestEvent();
   return event && event.status !== 'FINISHED' ? event : null;
@@ -484,7 +505,8 @@ async function handleAdmin(action, body, req) {
     }
     if (action === 'admin.events.create') {
       if (latest && latest.status !== 'FINISHED') throw new Error('Encerre o evento atual antes de iniciar uma nova noite.');
-      const name = text(body.name) || `Karaokê ${new Date().toLocaleDateString('pt-BR')}`;
+      const scheduled = await calendarEventForDate();
+      const name = text(body.name) || scheduled?.title || `Karaokê ${new Date().toLocaleDateString('pt-BR')}`;
       const capacity = Number(body.capacity ?? 45);
       if (!Number.isInteger(capacity) || capacity < 1 || capacity > 10000) throw new Error('Capacidade inválida.');
       const { data, error } = await db().from('events').insert({ name, status: 'CLOSED', capacity }).select('*').single();

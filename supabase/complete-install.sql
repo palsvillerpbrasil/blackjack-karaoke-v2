@@ -13,6 +13,17 @@ create table if not exists public.events (
  opened_at timestamptz,
  closed_at timestamptz
 );
+create table if not exists public.karaoke_calendar (
+ id uuid primary key default gen_random_uuid(),
+ event_date date not null unique,
+ title text,
+ presenter_name text,
+ has_karaoke boolean not null default true,
+ created_by text,
+ created_at timestamptz not null default now(),
+ updated_at timestamptz not null default now()
+);
+
 create table if not exists public.dining_tables (
  id text primary key,
  number integer not null unique,
