@@ -603,10 +603,64 @@ async function handleAdmin(action, body, req) {
 
   if (action === 'admin.history') {
     const eventId = text(body.eventId);
-    let query = db().from('presentations').select('id,event_id,table_number,tab_number,p1,p2,p3,song,sung_at').eq('status', 'SUNG').order('sung_at', { ascending: false, nullsFirst: false }).limit(1000);
+    let query = db().from('presentations').select('id,event_id,table_id,table_number,tab_number,p1,p2,p3,song,sung_at').eq('status', 'SUNG').order('sung_at', { ascending: false, nullsFirst: false }).limit(1000);
     if (eventId) query = query.eq('event_id', eventId);
-    const { data, error } = await query; if (error) throw error;
-    return { ok: true, presentations: data || [] };
+    const { data: presentations, error } = await query; if (error) throw error;
+    const ids = (presentations || []).map(p => p.id);
+    const { data: people, error: peopleError } = ids.length
+      ? await db().from('participants').select('id,event_id,presentation_id,name,external_registered_at,external_registered_by,created_at').in('presentation_id', ids).order('created_at', { ascending: true })
+      : { data: [], error: null };
+    if (peopleError) throw peopleError;
+    const byPresentation = new Map();
+    for (const person of people || []) {
+      if (!byPresentation.has(person.presentation_id)) byPresentation.set(person.presentation_id, []);
+      byPresentation.get(person.presentation_id).push(person);
+    }
+    const rows = [];
+    for (const presentation of presentations || []) {
+      const members = byPresentation.get(presentation.id) || [];
+      if (members.length) {
+        for (const person of members) rows.push({
+          id: person.id, presentation_id: presentation.id, event_id: presentation.event_id,
+          table_number: presentation.table_number, tab_number: presentation.tab_number,
+          name: person.name, song: presentation.song, sung_at: presentation.sung_at,
+          external_registered_at: person.external_registered_at,
+          external_registered_by: person.external_registered_by, markable: true
+        });
+      } else {
+        // Compatibilidade com históricos antigos que ainda não tenham linhas em participants.
+        for (const name of [presentation.p1, presentation.p2, presentation.p3].filter(Boolean)) rows.push({
+          id: null, presentation_id: presentation.id, event_id: presentation.event_id,
+          table_number: presentation.table_number, tab_number: presentation.tab_number,
+          name, song: presentation.song, sung_at: presentation.sung_at,
+          external_registered_at: null, external_registered_by: null, markable: false
+        });
+      }
+    }
+    return { ok: true, presentations: rows };
+  }
+  if (action === 'admin.history.mark') {
+    const participantId = text(body.participantId);
+    if (!participantId) throw new Error('Participante não informado.');
+    const { data: person, error: personError } = await db().from('participants')
+      .select('id,event_id,presentation_id,name').eq('id', participantId).single();
+    if (personError) throw personError;
+    const { data: presentation, error: presentationError } = await db().from('presentations')
+      .select('id,event_id,status').eq('id', person.presentation_id).single();
+    if (presentationError) throw presentationError;
+    if (presentation.status !== 'SUNG' || presentation.event_id !== person.event_id) {
+      throw new Error('Só é possível marcar participantes de apresentações já cantadas.');
+    }
+    const registered = body.registered === true;
+    const changes = registered
+      ? { external_registered_at: new Date().toISOString(), external_registered_by: admin.display_name }
+      : { external_registered_at: null, external_registered_by: null };
+    const { data, error } = await db().from('participants').update(changes).eq('id', participantId)
+      .select('id,external_registered_at,external_registered_by').single();
+    if (error) throw error;
+    await audit(admin.display_name, registered ? 'HISTORY_EXTERNAL_REGISTERED' : 'HISTORY_EXTERNAL_UNREGISTERED',
+      { participant_id: participantId, participant_name: person.name }, person.event_id);
+    return { ok: true, participant: data };
   }
   if (action === 'admin.admins.list') {
     const { data, error } = await db().from('admins').select('id,display_name,role,active,created_at').order('created_at');
@@ -624,6 +678,17 @@ async function handleAdmin(action, body, req) {
     const display_name = role === 'ADMIN' ? 'Administrador 2' : 'Colaborador';
     const { data, error: ie } = await db().from('admins').insert({ display_name, role, password_hash: await hashPassword(password), active: true }).select('id,display_name,role,active').single();
     if (ie) throw ie; await audit(admin.display_name, 'ADMIN_CREATED', { display_name, role }); return { ok: true, admin: data };
+  }
+  if (action === 'admin.admins.rename') {
+    const targetId = text(body.id);
+    const displayName = text(body.displayName);
+    if (!targetId) throw new Error('Selecione o perfil que deseja renomear.');
+    if (displayName.length < 2 || displayName.length > 60) throw new Error('O nome deve ter entre 2 e 60 caracteres.');
+    const { data, error } = await db().from('admins').update({ display_name: displayName })
+      .eq('id', targetId).select('id,display_name,role,active,created_at').single();
+    if (error) throw error;
+    await audit(admin.display_name, 'ADMIN_NAME_CHANGED', { admin_id: targetId, display_name: displayName });
+    return { ok: true, admin: data };
   }
   if (action === 'admin.admins.password') {
     const password = String(body.password || ''); if (password.length < 10) throw new Error('A senha deve ter pelo menos 10 caracteres.');
