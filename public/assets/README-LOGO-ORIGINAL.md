@@ -1,3 +1,5 @@
 # Logo original BLACK JACK
 
-O arquivo `logo-original.png` nesta pasta é a imagem original fornecida pelo responsável pelo BLACK JACK. Foi copiado sem redesenho, recorte, alteração de cor ou recomposição. As interfaces e a impressão dos QR Codes referenciam este arquivo.
+`logo-original.png` preserva o desenho original do BLACK JACK em formato circular. O fundo quadrado externo foi convertido em transparência; o interior escuro e os elementos brancos do emblema foram preservados.
+
+A imagem é usada no site do cliente, no painel administrativo, no telão e nas impressões dos QR Codes.
