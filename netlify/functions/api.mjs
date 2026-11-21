@@ -11,7 +11,7 @@ const headers = {
   'access-control-allow-headers':'content-type,authorization',
   'access-control-allow-methods':'POST,OPTIONS'
 };
-const reply=(status,body)=>({statusCode:status,headers,body:JSON.stringify(body)});
+const reply=(status,body)=>new Response(JSON.stringify(body),{status,headers});
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().replace(/\s+/g,' ').toLocaleLowerCase('pt-BR');
 const safe=s=>String(s||'').replace(/[\u0000-\u001f\u007f]/g,'').trim();
 async function activeEvent(){
@@ -69,7 +69,7 @@ async function register(payload){
  return {ok:true,id};
 }
 export default async (req)=>{
- if(req.method==='OPTIONS')return {statusCode:204,headers};
+ if(req.method==='OPTIONS')return new Response(null,{status:204,headers});
  if(req.method!=='POST')return reply(405,{ok:false,error:'Método não permitido.'});
  try{
   if(!process.env.SUPABASE_URL||!process.env.SUPABASE_SERVICE_ROLE_KEY)throw new Error('Banco ainda não configurado no ambiente Netlify.');
