@@ -68,7 +68,8 @@ As migrações são incrementais e não apagam as tabelas nem os registros exist
 4. Entre no painel → Administradores.
 5. Crie o segundo perfil Administrador (acesso total) e o perfil Colaborador (somente comandas), cada um com senha diferente.
 6. O login é exclusivamente por senha; não existe campo de usuário.
-7. Após o primeiro administrador ser criado, remova `ADMIN_SETUP_KEY` da Netlify para desativar o bootstrap.
+7. Os três perfis (dois administradores e um colaborador) podem manter sessões simultâneas em computadores diferentes. Cada perfil deve usar sua própria senha.
+8. Após o primeiro administrador ser criado, remova `ADMIN_SETUP_KEY` da Netlify para desativar o bootstrap.
 
 ## 5. Operação da noite
 1. Entre em Administração → Dashboard.
@@ -80,16 +81,21 @@ As migrações são incrementais e não apagam as tabelas nem os registros exist
 7. Abra `/telao.html` no computador conectado ao televisor.
 8. Os clientes escaneiam o QR Code, informam comanda e nome no primeiro acesso e depois têm o nome recuperado automaticamente naquela noite.
 9. Uma comanda só pode manter uma apresentação pendente. Ela é liberada quando a música é cantada ou cancelada.
-10. No painel, gerencie fila, edição, início, conclusão e cancelamento.
-11. Inicie o sorteio informando quantos vencedores deseja. O telão mostra a animação e revela nome, música e mesa, sem exibir comanda.
-12. Encerre a noite. Para outra noite, crie um novo evento; as comandas e os cadastros pertencem ao evento anterior e não são reutilizados.
+10. No painel, gerencie fila, edição, início, conclusão e cancelamento. A fila preserva as três primeiras posições do rodízio; a partir da quarta, uma primeira música de comanda sem histórico passa à frente das músicas repetidas. Depois que cantar uma vez, a comanda segue o rodízio normal.
+11. Na fila, use `Iniciar com telões` para escolher a tela/janela a compartilhar. O telão mantém uma faixa superior com a música atual e a próxima. Encerre a transmissão pelo botão do painel; se o navegador encerrar o compartilhamento, o telão retorna ao modo normal.
+12. Use `Inserir música manual` para cadastrar uma apresentação extra. O sistema aumenta a capacidade da noite em uma unidade e mantém a música oculta do telão até ser iniciada.
+13. A seção recolhível `Músicas já cantadas` permite devolver uma apresentação à fila, posicionada por padrão depois das três primeiras posições quando houver itens suficientes.
+14. A página Comandas atualiza automaticamente a cada dois minutos. Após enviar uma música, o formulário do QR Code volta à identificação inicial para permitir o uso do mesmo celular por outra pessoa.
+15. O histórico numera as músicas por pessoa/comanda em ordem cronológica. Marcar uma apresentação como lançada aplica a marcação aos registros anteriores daquela pessoa na mesma comanda e noite.
+16. Inicie o sorteio informando quantos vencedores deseja. O telão mostra a animação e revela nome, música e mesa, sem exibir comanda.
+17. Encerre a noite. Para outra noite, crie um novo evento; as comandas e os cadastros pertencem ao evento anterior e não são reutilizados.
 
 ## Regras implementadas
 - O bloqueio de segunda inscrição é por comanda e por evento.
 - Comandas são vinculadas ao evento e não à pessoa para sempre.
 - O número da comanda aparece apenas nas telas administrativas e no campo digitado pelo próprio cliente; não é retornado no estado público nem no telão.
 - O painel tem dois perfis de acesso total e um colaborador limitado às comandas.
-- A fila automática roda por mesa, seguindo a mesa posterior à última que cantou; dentro de cada mesa, prioriza menor histórico médio de músicas dos integrantes e depois horário de reserva.
+- A fila automática mantém o rodízio por mesa, mas calcula o histórico de músicas por comanda, independentemente da mesa atual. A primeira música de uma comanda sem histórico recebe prioridade somente a partir da quarta posição, sem deslocar as três primeiras; depois que cantar uma vez, as próximas inscrições seguem o rodízio normal.
 - A ordem manual persistida fica à frente de novas inscrições até o administrador restaurar o rodízio automático.
 - Sorteio usa pessoas que cantaram, sem repetição no evento e com peso menor para mesas já sorteadas naquela rodada.
 - QR Codes são gerados no backend com a dependência `qrcode`, sem serviço externo de QR.
