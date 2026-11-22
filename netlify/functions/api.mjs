@@ -318,8 +318,14 @@ async function registerPresentation(body) {
 }
 
 async function screenStatus() {
+  const [thanksSetting, thanksEvents] = await Promise.all([
+    db().from('settings').select('value').eq('key', 'screen_thanks_active').maybeSingle(),
+    upcomingCalendarEvents(true, 3)
+  ]);
+  if (thanksSetting.error) throw thanksSetting.error;
+  const thanksActive = thanksSetting.data?.value === true;
   const event = await eventForPublic();
-  if (!event) return { ok: true, event: null, eventId: null, capacity: 0, available: 0, current: null, last: null, next: null, queue: [], raffle: null, welcome: false, screenSession: null };
+  if (!event) return { ok: true, event: null, eventId: null, capacity: 0, available: 0, current: null, last: null, next: null, queue: [], raffle: null, welcome: false, screenSession: null, thanksActive, thanksEvents };
   const [q, calendarEvent, startedResult, screenResult] = await Promise.all([
     queueForEvent(event),
     calendarEventForDate(),
@@ -377,7 +383,9 @@ async function screenStatus() {
     last: publicPresentation(q.sung.find(x => !x.hide_on_screen) || (q.last?.hide_on_screen ? null : q.last)),
     next: publicPresentation(q.queue.find(x => !x.hide_on_screen)),
     raffle: rafflePayload,
-    screenSession
+    screenSession,
+    thanksActive,
+    thanksEvents
   };
 }
 async function listTabs(event) {
@@ -505,6 +513,19 @@ async function handleAdmin(action, body, req) {
 
   const admin = await requireAdmin(req);
   if (action === 'admin.me') return { ok: true, admin };
+  if (action === 'admin.screen.thanks') {
+    assertFull(admin);
+    if (typeof body.active !== 'boolean') {
+      const { data, error } = await db().from('settings').select('value').eq('key', 'screen_thanks_active').maybeSingle();
+      if (error) throw error;
+      return { ok: true, active: data?.value === true };
+    }
+    const active = body.active;
+    const { error } = await db().from('settings').upsert({ key: 'screen_thanks_active', value: active }, { onConflict: 'key' });
+    if (error) throw error;
+    await audit(admin.display_name, active ? 'SCREEN_THANKS_SHOWN' : 'SCREEN_THANKS_HIDDEN');
+    return { ok: true, active };
+  }
   if (action.startsWith('admin.calendar.')) {
     assertFull(admin);
     if (action === 'admin.calendar.list') {
