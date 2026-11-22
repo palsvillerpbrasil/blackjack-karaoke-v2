@@ -125,75 +125,96 @@ async function validateTableToken(token) {
 }
 
 async function queueForEvent(event) {
-  if (!event) return { current: null, last: null, queue: [], manualMode: false };
+  if (!event) return { current: null, last: null, queue: [], sung: [], manualMode: false };
   const client = db();
-  const [{ data: rows, error: re }, { data: participants, error: pe }, { data: sungRows, error: se }, { data: state, error: qe }, { data: stats, error: ste }] = await Promise.all([
-    client.from('presentations').select('id,event_id,table_id,table_number,tab_number,p1,p2,p3,song,status,created_at,started_at,sung_at,manual_rank,manual_position,round_number').eq('event_id', event.id).in('status', ['PENDING', 'PLAYING', 'SUNG']).order('created_at'),
+  const [{ data: rows, error: re }, { data: participants, error: pe }, { data: state, error: qe }] = await Promise.all([
+    client.from('presentations').select('id,event_id,table_id,table_number,tab_number,p1,p2,p3,song,status,created_at,started_at,sung_at,manual_rank,manual_position,round_number,hide_on_screen').eq('event_id', event.id).in('status', ['PENDING', 'PLAYING', 'SUNG']).order('created_at'),
     client.from('participants').select('presentation_id,table_id,normalized_name,name').eq('event_id', event.id),
-    client.from('presentations').select('id,sung_at,table_number').eq('event_id', event.id).eq('status', 'SUNG'),
-    client.from('queue_state').select('last_sung_table_number,manual_mode').eq('event_id', event.id).maybeSingle(),
-    client.from('participant_stats').select('table_id,normalized_name,songs_sung').eq('event_id', event.id)
+    client.from('queue_state').select('last_sung_table_number,manual_mode').eq('event_id', event.id).maybeSingle()
   ]);
-  if (re) throw re; if (pe) throw pe; if (se) throw se; if (qe) throw qe; if (ste) throw ste;
+  if (re) throw re; if (pe) throw pe; if (qe) throw qe;
   const participantMap = new Map();
   for (const p of participants || []) {
     if (!participantMap.has(p.presentation_id)) participantMap.set(p.presentation_id, []);
     participantMap.get(p.presentation_id).push(p);
   }
-  const sungIds = new Set((sungRows || []).map(x => x.id));
-  const history = new Map();
-  for (const p of participants || []) if (sungIds.has(p.presentation_id)) {
-    const key = `${p.table_id}|${p.normalized_name}`; history.set(key, (history.get(key) || 0) + 1);
+
+  // A prioridade pertence à comanda, não à mesa. Assim, trocar de mesa
+  // não zera a quantidade de músicas que a pessoa já cantou na noite.
+  const sungRows = (rows || []).filter(x => x.status === 'SUNG');
+  const songsByTab = new Map();
+  for (const p of sungRows) {
+    if (p.tab_number) songsByTab.set(p.tab_number, (songsByTab.get(p.tab_number) || 0) + 1);
   }
-  for (const stat of stats || []) history.set(`${stat.table_id}|${stat.normalized_name}`, Number(stat.songs_sung || 0));
+
   const current = (rows || []).find(x => x.status === 'PLAYING') || null;
   const pending = (rows || []).filter(x => x.status === 'PENDING');
-  // Ajustes manuais são exceções pontuais: o rodízio automático continua
-  // ordenando todas as outras apresentações e preenchendo os espaços livres.
+  // Ajustes manuais continuam sendo exceções pontuais.
   const manual = pending.filter(x => x.manual_position !== null && x.manual_position !== undefined || x.manual_rank !== null && x.manual_rank !== undefined)
     .sort((a, b) => Number(a.manual_position ?? (Number(a.manual_rank) / 1000)) - Number(b.manual_position ?? (Number(b.manual_rank) / 1000)) || Number(a.manual_rank || 0) - Number(b.manual_rank || 0));
   const manualIds = new Set(manual.map(x => x.id));
   const auto = pending.filter(x => !manualIds.has(x.id));
+
   const tableGroups = new Map();
   for (const p of auto) {
     if (!tableGroups.has(p.table_number)) tableGroups.set(p.table_number, []);
-    const members = participantMap.get(p.id) || [];
-    const counts = members.map(m => history.get(`${m.table_id}|${m.normalized_name}`) || 0);
-    p._historyAverage = counts.length ? counts.reduce((a, b) => a + b, 0) / counts.length : 0;
-    p._neverSung = counts.length ? counts.every(x => x === 0) : true;
+    p._songsSung = Number(songsByTab.get(p.tab_number) || 0);
     tableGroups.get(p.table_number).push(p);
   }
-  for (const list of tableGroups.values()) list.sort((a, b) => a._historyAverage - b._historyAverage || new Date(a.created_at) - new Date(b.created_at));
+  for (const list of tableGroups.values()) {
+    list.sort((a, b) => a._songsSung - b._songsSung || new Date(a.created_at) - new Date(b.created_at));
+  }
+
   const tableNumbers = [...tableGroups.keys()].sort((a, b) => a - b);
   const cursor = state?.last_sung_table_number ?? null;
   const rotation = cursor === null ? tableNumbers : [...tableNumbers.filter(n => n > cursor), ...tableNumbers.filter(n => n <= cursor)];
-  const automaticOrder = [];
+  const roundRobinOrder = [];
   let round = 1;
-  while (automaticOrder.length < auto.length) {
+  while (roundRobinOrder.length < auto.length) {
     let added = false;
     for (const tableNumber of rotation) {
       const next = tableGroups.get(tableNumber)?.shift();
-      if (next) { next._round = round; automaticOrder.push(next); added = true; }
+      if (next) { next._round = round; roundRobinOrder.push(next); added = true; }
     }
     if (!added) break;
     round++;
   }
-  const mergedOrder = automaticOrder.slice();
+
+  // As três primeiras posições do rodízio calculado são preservadas.
+  // A partir da quarta, primeiras músicas de comandas sem histórico passam
+  // à frente das músicas repetidas. Depois da primeira apresentação cantada,
+  // a comanda deixa de receber essa prioridade.
+  const protectedFirstThree = roundRobinOrder.slice(0, 3);
+  const remaining = roundRobinOrder.slice(3);
+  const firstSongs = remaining.filter(p => p._songsSung === 0);
+  const regular = remaining.filter(p => p._songsSung > 0);
+  const prioritizedOrder = [...protectedFirstThree, ...firstSongs, ...regular];
+
+  const mergedOrder = prioritizedOrder.slice();
   for (const p of manual) {
     const desired = Number(p.manual_position ?? (Number(p.manual_rank) / 1000) ?? 1);
     const index = Math.max(0, Math.min(mergedOrder.length, (Number.isFinite(desired) ? desired : 1) - 1));
     mergedOrder.splice(index, 0, p);
   }
-  const ordered = mergedOrder.map((p, index) => ({
-    ...p,
-    position: index + 1,
-    round: manualIds.has(p.id) ? 'Manual' : (p._round || 1),
-    history_count: (participantMap.get(p.id) || []).reduce((sum, m) => sum + (history.get(`${m.table_id}|${m.normalized_name}`) || 0), 0),
-    participants: (participantMap.get(p.id) || []).map(m => m.name)
-  }));
-  const last = (rows || []).filter(x => x.status === 'SUNG').sort((a, b) => new Date(b.sung_at || b.created_at) - new Date(a.sung_at || a.created_at))[0] || null;
-  const clean = p => p ? ({ id: p.id, table_number: p.table_number, tab_number: p.tab_number, p1: p.p1, p2: p.p2, p3: p.p3, song: p.song, status: p.status, created_at: p.created_at, started_at: p.started_at, sung_at: p.sung_at }) : null;
-  return { current: clean(current), last: clean(last), queue: ordered, manualMode: Boolean(state?.manual_mode), manualCount: manual.length, automaticActive: true, cursor };
+
+  const ordered = mergedOrder.map((p, index) => {
+    const count = Number(songsByTab.get(p.tab_number) || 0);
+    return {
+      ...p,
+      position: index + 1,
+      round: manualIds.has(p.id) ? 'Manual' : (p._round || 1),
+      history_count: count,
+      first_song_priority: count === 0 && index >= 3 && !manualIds.has(p.id),
+      participants: (participantMap.get(p.id) || []).map(m => m.name)
+    };
+  });
+  const last = sungRows.sort((a, b) => new Date(b.sung_at || b.created_at) - new Date(a.sung_at || a.created_at))[0] || null;
+  const clean = p => p ? ({ id: p.id, table_number: p.table_number, tab_number: p.tab_number, p1: p.p1, p2: p.p2, p3: p.p3, song: p.song, status: p.status, created_at: p.created_at, started_at: p.started_at, sung_at: p.sung_at, hide_on_screen: Boolean(p.hide_on_screen) }) : null;
+  const sung = sungRows
+    .slice()
+    .sort((a, b) => new Date(b.sung_at || b.created_at) - new Date(a.sung_at || a.created_at))
+    .map(clean);
+  return { current: clean(current), last: clean(last), queue: ordered, sung, manualMode: Boolean(state?.manual_mode), manualCount: manual.length, automaticActive: true, cursor };
 }
 function publicPresentation(p) {
   if (!p) return null;
@@ -214,7 +235,7 @@ async function publicStatus(token) {
   if (error) throw error;
   return { ok: true, table: table.number, event: event.name, status: event.status, open: event.status === 'OPEN',
     showUpcomingEvents: false, upcomingEvents: [], capacity: event.capacity,
-    available: Math.max(0, event.capacity - (count || 0)), last: publicPresentation(q.last), current: publicPresentation(q.current), next: publicPresentation(q.queue[0]) };
+    available: Math.max(0, event.capacity - (count || 0)), last: publicPresentation(q.sung.find(x => !x.hide_on_screen) || (q.last?.hide_on_screen ? null : q.last)), current: publicPresentation(q.current), next: publicPresentation(q.queue.find(x => !x.hide_on_screen)) };
 }
 async function lookupTab(token, tabValue) {
   const table = await validateTableToken(token);
@@ -256,15 +277,15 @@ async function registerPresentation(body) {
 
 async function screenStatus() {
   const event = await eventForPublic();
-  if (!event) return { ok: true, event: null, capacity: 0, available: 0, current: null, last: null, next: null, queue: [], raffle: null, welcome: false };
-  const [q, calendarEvent, startedResult] = await Promise.all([
+  if (!event) return { ok: true, event: null, eventId: null, capacity: 0, available: 0, current: null, last: null, next: null, queue: [], raffle: null, welcome: false, screenSession: null };
+  const [q, calendarEvent, startedResult, screenResult] = await Promise.all([
     queueForEvent(event),
     calendarEventForDate(),
-    db().from('presentations').select('id', { count: 'exact', head: true }).eq('event_id', event.id).or('started_at.not.is.null,status.eq.SUNG')
+    db().from('presentations').select('id', { count: 'exact', head: true }).eq('event_id', event.id).or('started_at.not.is.null,status.eq.SUNG'),
+    db().from('screen_sessions').select('session_id,active,expires_at').eq('event_id', event.id).maybeSingle()
   ]);
   if (startedResult.error) throw startedResult.error;
-  // Remaining presentation slots follow the same rule as the customer page:
-  // pending, currently playing and already sung presentations consume a slot.
+  if (screenResult.error) throw screenResult.error;
   const { count: usedCount, error: countError } = await db()
     .from('presentations')
     .select('id', { count: 'exact', head: true })
@@ -298,42 +319,24 @@ async function screenStatus() {
   }
   const scheduledTitle = calendarEvent?.title || event.name;
   const welcome = event.status !== 'CLOSED' && !q.current && Number(startedResult.count || 0) === 0;
+  const session = screenResult.data;
+  const screenSession = session?.active && (!session.expires_at || new Date(session.expires_at).getTime() > Date.now())
+    ? { sessionId: session.session_id, active: true } : null;
   return {
     ok: true,
-    event: { name: scheduledTitle, status: event.status },
+    event: { id: event.id, name: scheduledTitle, status: event.status },
+    eventId: event.id,
     welcome,
     welcomeTitle: scheduledTitle,
     presenterName: calendarEvent?.presenter_name || '',
     eventDate: calendarEvent?.event_date || saoPauloDateString(),
     capacity, available,
-    current: publicPresentation(q.current), last: publicPresentation(q.last), next: publicPresentation(q.queue[0]), raffle: rafflePayload
+    current: publicPresentation(q.current),
+    last: publicPresentation(q.sung.find(x => !x.hide_on_screen) || (q.last?.hide_on_screen ? null : q.last)),
+    next: publicPresentation(q.queue.find(x => !x.hide_on_screen)),
+    raffle: rafflePayload,
+    screenSession
   };
-}
-
-async function dashboard() {
-  const event = await latestEvent();
-  const { count: tableCount, error: te } = await db().from('dining_tables').select('id', { count: 'exact', head: true });
-  if (te) throw te;
-  if (!event) return { event: null, tables: tableCount || 0, counts: { reserved: 0, sung: 0, cancelled: 0, waiting: 0, available: 0, capacity: 45 }, releasedTabs: 0, usedTabs: 0 };
-  const { data: rows, error } = await db().from('presentations').select('id,status,tab_number').eq('event_id', event.id);
-  if (error) throw error;
-  const list = rows || [];
-  const reserved = list.filter(x => ['PENDING', 'PLAYING'].includes(x.status)).length;
-  const sung = list.filter(x => x.status === 'SUNG').length;
-  const cancelled = list.filter(x => x.status === 'CANCELLED').length;
-  const { count: releasedTabs, error: re } = await db().from('tab_releases').select('tab_number', { count: 'exact', head: true }).eq('event_id', event.id).eq('enabled', true);
-  if (re) throw re;
-  const { count: usedTabs, error: ue } = await db().from('event_tabs').select('tab_number', { count: 'exact', head: true }).eq('event_id', event.id);
-  if (ue) throw ue;
-  const pendingIds = list.filter(x => ['PENDING','PLAYING'].includes(x.status)).map(x => x.id);
-  const { count: waitingPeople, error: we } = pendingIds.length ? await db().from('participants').select('id', { count: 'exact', head: true }).eq('event_id', event.id).in('presentation_id', pendingIds) : { count: 0, error: null };
-  if (we) throw we;
-  return { event, tables: tableCount || 0, counts: { reserved, sung, cancelled, waiting: waitingPeople || 0, available: Math.max(0, event.capacity - reserved - sung), capacity: event.capacity }, releasedTabs: releasedTabs || 0, usedTabs: usedTabs || 0 };
-}
-
-async function adminQueue(event) {
-  if (!event) return { current: null, last: null, queue: [], manualMode: false, manualCount: 0, automaticActive: true };
-  return queueForEvent(event);
 }
 async function listTabs(event) {
   if (!event) return [];
@@ -609,8 +612,63 @@ async function handleAdmin(action, body, req) {
     }
   }
 
+  if (action === 'admin.screen.start') {
+    assertFull(admin);
+    const event = await eventForPublic();
+    if (!event) throw new Error('Não existe uma noite ativa para transmitir.');
+    const sessionId = id();
+    const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+    const { error } = await db().from('screen_sessions').upsert({
+      event_id: event.id, session_id: sessionId, active: true,
+      started_by: admin.display_name, updated_at: new Date().toISOString(), expires_at: expiresAt
+    }, { onConflict: 'event_id' });
+    if (error) throw error;
+    await audit(admin.display_name, 'SCREEN_SHARE_STARTED', { session_id: sessionId }, event.id);
+    return { ok: true, eventId: event.id, sessionId, expiresAt };
+  }
+  if (action === 'admin.screen.stop') {
+    assertFull(admin);
+    const event = await eventForPublic();
+    if (!event) return { ok: true, stopped: true };
+    let query = db().from('screen_sessions').update({ active: false, updated_at: new Date().toISOString() }).eq('event_id', event.id);
+    if (text(body.sessionId)) query = query.eq('session_id', text(body.sessionId));
+    const { error } = await query;
+    if (error) throw error;
+    await audit(admin.display_name, 'SCREEN_SHARE_STOPPED', { session_id: text(body.sessionId) }, event.id);
+    return { ok: true, stopped: true };
+  }
+  if (action === 'admin.queue.manualAdd') {
+    assertFull(admin);
+    const event = await eventForPublic();
+    if (!event) throw new Error('Não existe uma noite ativa para inserir uma música.');
+    const p = {
+      p_event_id: event.id, p_table_id: text(body.tableId),
+      p_tab: text(body.tab).toUpperCase(), p_p1: text(body.p1),
+      p_p2: text(body.p2), p_p3: text(body.p3), p_song: text(body.song),
+      p_actor: admin.display_name
+    };
+    const { data, error } = await db().rpc('bj_admin_add_presentation', p);
+    if (error) throw error;
+    await audit(admin.display_name, 'MANUAL_PRESENTATION_ADDED', { presentation_id: data?.id, tab: p.p_tab, song: p.p_song }, event.id);
+    return { ok: true, result: data, ...(await adminQueue(event)), dashboard: await dashboard() };
+  }
+  if (action === 'admin.presentation.restore') {
+    assertFull(admin);
+    const { data, error } = await db().rpc('bj_restore_sung_presentation', {
+      p_presentation_id: text(body.id), p_actor: admin.display_name
+    });
+    if (error) throw error;
+    const event = await eventForPublic();
+    return { ok: true, result: data, ...(await adminQueue(event)), dashboard: await dashboard() };
+  }
   if (action === 'admin.queue.list') {
-    const event = await eventForPublic(); return { ok: true, event, ...(await adminQueue(event)) };
+    const event = await eventForPublic();
+    if (!event) return { ok: true, event: null, ...(await adminQueue(event)), screenSession: null };
+    const { data: session, error } = await db().from('screen_sessions').select('session_id,active,expires_at').eq('event_id', event.id).maybeSingle();
+    if (error) throw error;
+    const screenSession = session?.active && (!session.expires_at || new Date(session.expires_at).getTime() > Date.now())
+      ? { sessionId: session.session_id, active: true } : null;
+    return { ok: true, event, ...(await adminQueue(event)), screenSession };
   }
   if (action === 'admin.queue.reorder') {
     const event = await eventForPublic(); if (!event) throw new Error('Não existe evento ativo.');
@@ -832,6 +890,16 @@ export default async function handler(req) {
     }
     if (action === 'public.status') return json(200, await publicStatus(body.token));
     if (action === 'public.screenStatus') return json(200, await screenStatus());
+    if (action === 'public.realtimeConfig') {
+      const anonKey = text(process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY);
+      return json(200, {
+        ok: true,
+        configured: Boolean(text(process.env.SUPABASE_URL) && anonKey),
+        url: text(process.env.SUPABASE_URL),
+        anonKey,
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+    }
     if (action === 'public.lookupTab') return json(200, await lookupTab(body.token, body.tab));
     if (action === 'public.identifyTab') return json(200, await identifyTab(body));
     if (action === 'public.register') return json(200, await registerPresentation(body));

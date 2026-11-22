@@ -1,15 +1,93 @@
 <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050505"><title>Karaokê BLACK JACK — Telão</title><link href="https://fonts.googleapis.com/css2?family=Anton&family=Montserrat:wght@500;600;700;800&family=Dancing+Script:wght@700&display=swap" rel="stylesheet"><style>
 :root{--gold:#c8922a;--gold2:#f0c76d;--bg:#050505}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at top,#281d0b 0,#050505 58%);color:#fff;font-family:Montserrat,Arial,sans-serif;overflow:hidden}.wrap{width:100%;min-height:100vh;padding:2vh 3vw;display:flex;flex-direction:column}.brand{text-align:center}.brand img{max-height:11vh;max-width:140px;object-fit:contain;display:block;margin:0 auto 4px}.brand .karaoke{font:clamp(35px,5vw,74px) Anton;color:var(--gold2);letter-spacing:3px;line-height:.95}.brand .blackjack{font:clamp(27px,3.5vw,52px) Anton;letter-spacing:5px;line-height:1.05}.brand .sub{font:clamp(14px,1.5vw,22px) 'Dancing Script',cursive;color:var(--gold2);margin-top:4px}.event{color:#aaa;text-align:center;letter-spacing:3px;font-size:clamp(10px,1vw,15px);margin:1.5vh 0 1vh}.availability{width:min(620px,92%);margin:0 auto 2vh;padding:1.1vh 2.4vw;display:flex;align-items:center;justify-content:center;gap:clamp(12px,2vw,26px);border:1px solid #5b421b;border-radius:16px;background:linear-gradient(110deg,#21190c,#111);box-shadow:0 0 28px #c8922a18}.availability-number{min-width:1.2em;text-align:center;color:var(--gold2);font:clamp(38px,5vw,68px) Anton;line-height:1}.availability-title{color:#fff;font:clamp(14px,1.7vw,24px) Anton;letter-spacing:1px}.availability-detail{margin-top:4px;color:#aaa;font-size:clamp(9px,.9vw,13px);font-weight:700;letter-spacing:1px}.board{display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:1.5vw;flex:1;align-items:stretch}.slot{background:linear-gradient(145deg,#1d1d1d,#101010);border:1px solid #3a3a3a;border-radius:18px;padding:2.2vw;display:flex;flex-direction:column;justify-content:center;text-align:center;min-width:0}.slot.current{border:2px solid var(--gold);background:linear-gradient(145deg,#34240e,#17120a);box-shadow:0 0 35px #c8922a25}.slot .label{color:var(--gold2);font:clamp(17px,2vw,30px) Anton;letter-spacing:1px;margin-bottom:2vh}.song{font:clamp(21px,2.6vw,42px) Anton;overflow-wrap:anywhere}.slot.current .song{font-size:clamp(28px,3.5vw,58px);color:#fff}.people{font-size:clamp(13px,1.3vw,20px);color:#ccc;margin-top:2vh;line-height:1.5}.table{color:var(--gold2);font-weight:800;margin-top:1vh;font-size:clamp(14px,1.5vw,23px)}.raffle{position:fixed;inset:0;background:radial-gradient(ellipse at center,#33230c 0,#080808 72%);z-index:5;display:flex;flex-direction:column;padding:4vh 4vw}.raffle.hidden{display:none}.raffleTitle{text-align:center;color:var(--gold2);font:clamp(35px,6vw,86px) Anton;letter-spacing:3px}.raffleSubtitle{text-align:center;color:#eee;font-size:clamp(12px,1.5vw,20px);margin:1vh 0 3vh}.raffleContent{display:grid;grid-template-columns:1.1fr minmax(280px, .9fr);gap:3vw;flex:1;min-height:0}.spinBox{border:2px solid var(--gold);border-radius:20px;background:#100e0a;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:3vw;box-shadow:0 0 45px #c8922a30}.spinLabel{font-size:clamp(12px,1.2vw,18px);color:#aaa;letter-spacing:3px}.spinName{font:clamp(34px,5vw,70px) Anton;color:#fff;text-align:center;margin:2vh 0;overflow-wrap:anywhere}.spinSong{color:var(--gold2);font-size:clamp(13px,1.4vw,20px);text-align:center}.winnerList{display:flex;flex-direction:column;justify-content:center;gap:12px}.winnerCard{background:linear-gradient(110deg,#34240e,#17120a);border:1px solid var(--gold);border-radius:15px;padding:2vh 2vw;animation:arrive .6s ease both}.winnerCard .rank{color:var(--gold2);font:clamp(15px,1.7vw,26px) Anton}.winnerCard .name{font:clamp(27px,3.2vw,48px) Anton;overflow-wrap:anywhere}.winnerCard .song{font:600 clamp(12px,1.2vw,18px) Montserrat;color:#ddd}.winnerCard .table{font-size:clamp(12px,1.2vw,18px);margin-top:5px}@keyframes arrive{from{opacity:0;transform:translateX(-50px) scale(.96)}to{opacity:1;transform:translateX(0) scale(1)}}.footer{text-align:center;color:#6e6e6e;font-size:10px;letter-spacing:3px;padding-top:1.5vh}.welcome-screen{position:fixed;inset:0;z-index:4;display:flex;align-items:center;justify-content:center;background:#050505;overflow:hidden}.welcome-screen.hidden{display:none}.welcome-screen:before{content:"";position:absolute;inset:-12%;background:radial-gradient(ellipse at 50% 38%,#d18b272b 0,transparent 58%);animation:welcomeAmbient 6s ease-in-out infinite alternate}.welcome-art{position:relative;z-index:1;display:block;width:100vw;height:100vh;max-width:100%;max-height:100%;object-fit:contain;object-position:center;filter:drop-shadow(0 0 22px #d99b3430);animation:welcomeArtworkGlow 5.5s ease-in-out infinite;will-change:filter,transform}.welcome-screen:after{content:"";position:absolute;z-index:2;left:15%;right:15%;bottom:7%;height:2px;background:linear-gradient(90deg,transparent,#f2bf54,transparent);box-shadow:0 0 18px 4px #d99b3440;opacity:.45;animation:welcomeLine 3.8s ease-in-out infinite}@keyframes welcomeAmbient{from{opacity:.45;transform:scale(.96)}to{opacity:1;transform:scale(1.04)}}@keyframes welcomeArtworkGlow{0%,100%{filter:brightness(.98) drop-shadow(0 0 14px #d99b3420);transform:translateY(0)}50%{filter:brightness(1.045) drop-shadow(0 0 28px #d99b3450);transform:translateY(-.35vh)}}@keyframes welcomeLine{0%,100%{opacity:.18;transform:scaleX(.78)}50%{opacity:.72;transform:scaleX(1)}}@media(prefers-reduced-motion:reduce){.welcome-screen:before,.welcome-art,.welcome-screen:after{animation:none}}
 @media(max-width:800px){.availability{width:100%;margin-bottom:1vh;padding:1vh 3vw}.availability-number{font-size:clamp(34px,8vw,54px)}.availability-title{font-size:clamp(13px,3.2vw,20px)}.board{grid-template-columns:1fr;gap:1vh}.slot{padding:1.5vh;min-height:18vh}.raffleContent{grid-template-columns:1fr;grid-template-rows:.7fr 1.3fr}.spinBox{padding:1vh}.winnerList{overflow:auto}.wrap{overflow:auto}}
+
+.screen-share-stage{display:none;position:fixed;inset:0;z-index:9;background:#000;overflow:hidden}
+.screen-share-video{width:100%;height:100%;object-fit:contain;background:#000}
+.screen-share-ticker{position:absolute;top:0;left:0;right:0;z-index:2;min-height:54px;display:flex;align-items:center;overflow:hidden;background:linear-gradient(90deg,rgba(5,5,5,.94),rgba(35,24,8,.94),rgba(5,5,5,.94));border-bottom:2px solid var(--gold);box-shadow:0 5px 22px #0009}
+.screen-share-ticker span{display:inline-block;white-space:nowrap;padding-left:100%;font:clamp(16px,2.1vw,30px) Anton;color:var(--gold2);letter-spacing:1.2px;animation:screenTicker 24s linear infinite}
+@keyframes screenTicker{from{transform:translateX(0)}to{transform:translateX(-100%)}}
+body.screen-sharing .wrap,body.screen-sharing .welcome-screen,body.screen-sharing .raffle{display:none!important}
+body.screen-sharing .screen-share-stage{display:block}
 </style></head><body><main class="wrap"><header class="brand"><img src="/assets/logo-original.png" alt="Logo original BLACK JACK" onerror="this.style.display='none'"><div class="karaoke">KARAOKÊ</div><div class="blackjack">BLACK JACK</div><div class="sub">Sua vez de brilhar!</div></header><div class="event" id="eventName">NOITE DE KARAOKÊ</div><section class="availability" aria-live="polite" aria-atomic="true"><div class="availability-number" id="availableCount">—</div><div><div class="availability-title">APRESENTAÇÕES DISPONÍVEIS</div><div class="availability-detail" id="availabilityDetail">AGUARDANDO DADOS DA NOITE</div></div></section><section class="board"><article class="slot"><div class="label">ÚLTIMA CANTADA</div><div class="song" id="lastSong">—</div><div class="people" id="lastPeople"></div><div class="table" id="lastTable"></div></article><article class="slot current"><div class="label">TOCANDO AGORA</div><div class="song" id="currentSong">—</div><div class="people" id="currentPeople"></div><div class="table" id="currentTable"></div></article><article class="slot"><div class="label">PRÓXIMA</div><div class="song" id="nextSong">—</div><div class="people" id="nextPeople"></div><div class="table" id="nextTable"></div></article></section><div class="footer">BLACK JACK • KARAOKÊ</div></main>
+<section class="screen-share-stage" id="screenShareStage" aria-label="Tela compartilhada pelo administrador"><video class="screen-share-video" id="screenShareVideo" autoplay playsinline></video><div class="screen-share-ticker"><span id="screenShareTicker">BLACK JACK • TRANSMISSÃO PARA OS TELÕES</span></div></section>
 <section class="welcome-screen hidden" id="welcomeScreen" aria-label="Sejam todos bem-vindos ao Karaokê BLACK JACK"><img class="welcome-art" src="/assets/welcome-karaoke-blackjack.png" alt="Sejam todos bem-vindos ao Karaokê BLACK JACK. A estrela desta noite é você! Prepare a sua voz. O palco é seu."></section>
 <section class="raffle hidden" id="raffle"><div class="raffleTitle">HORA DO SORTEIO!</div><div class="raffleSubtitle">Boa sorte! Os nomes estão sendo escolhidos…</div><div class="raffleContent"><div class="winnerList" id="winnerList"></div><div class="spinBox"><div class="spinLabel">SORTEANDO PARTICIPANTE</div><div class="spinName" id="spinName">BOA SORTE!</div><div class="spinSong" id="spinSong">Aguarde o resultado</div></div></div></section>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-const $=id=>document.getElementById(id);let lastRaffleId=null;let spinTimer=null;let cachedCandidates=[];let currentRaffle=null;
+const $=id=>document.getElementById(id);let lastRaffleId=null;let spinTimer=null;let cachedCandidates=[];let currentRaffle=null;let screenClient=null;let screenChannel=null;let screenPeer=null;let screenEventId='';let activeScreenSession='';let screenClientId=crypto.randomUUID();let realtimeConfig=null;let lastScreenHello=0;let screenConnecting=false;
 async function api(){const r=await fetch('/api/',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'public.screenStatus'})});const j=await r.json();if(!r.ok||j.ok===false)throw Error(j.error||'Falha ao atualizar telão');return j}
 function showSlot(prefix,p){$(prefix+'Song').textContent=p?.song||'—';$(prefix+'People').textContent=p?[p.p1,p.p2,p.p3].filter(Boolean).join(' • '):'';$(prefix+'Table').textContent=p?`MESA ${p.table_number}`:''}
 function startSpin(candidates){cachedCandidates=(candidates||[]).filter(x=>x.name);if(spinTimer)clearInterval(spinTimer);spinTimer=setInterval(()=>{if(!cachedCandidates.length)return;const p=cachedCandidates[Math.floor(Math.random()*cachedCandidates.length)];$('spinName').textContent=p.name;$('spinSong').textContent=`${p.song||''} • MESA ${p.table_number||''}`},95)}
 function showWinners(winners){if(spinTimer){clearInterval(spinTimer);spinTimer=null}$('winnerList').innerHTML=(winners||[]).map(w=>`<div class="winnerCard"><div class="rank">${w.position}º SORTEADO</div><div class="name">${escapeHtml(w.participant_name)}</div><div class="song">${escapeHtml(w.song)}</div><div class="table">MESA ${w.table_number}</div></div>`).join('');if(winners?.length){$('spinName').textContent='PARABÉNS!';$('spinSong').textContent='Confira os participantes sorteados';}}
 function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-async function tick(){try{const s=await api();$('eventName').textContent=s.event?.name||'NOITE DE KARAOKÊ';$('welcomeScreen').classList.toggle('hidden',!s.welcome);const capacity=Number(s.capacity||0);const available=Number(s.available||0);$('availableCount').textContent=String(Math.max(0,available));$('availabilityDetail').textContent=capacity>0?`DE ${capacity} NA NOITE`:'AGUARDANDO ABERTURA DA NOITE';showSlot('last',s.last);showSlot('current',s.current);showSlot('next',s.next);if(s.raffle){$('raffle').classList.remove('hidden');if(lastRaffleId!==s.raffle.id){lastRaffleId=s.raffle.id;$('winnerList').innerHTML='';$('spinName').textContent='BOA SORTE!';startSpin(s.raffle.spinCandidates||[])}if(s.raffle.revealed){showWinners(s.raffle.winners||[])}}else{$('raffle').classList.add('hidden');if(spinTimer){clearInterval(spinTimer);spinTimer=null}lastRaffleId=null}}catch(e){$('eventName').textContent='BLACK JACK KARAOKÊ'}}tick();setInterval(()=>{if(!document.hidden)tick()},2000);
+async function screenApi(action,data={}){const r=await fetch('/api/',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,...data})});const j=await r.json();if(!r.ok||j.ok===false)throw Error(j.error||'Falha na transmissão');return j}
+async function screenSignal(event,payload){if(screenChannel)await screenChannel.send({type:'broadcast',event,payload})}
+async function stopScreenReceiver(){
+ activeScreenSession='';
+ if(screenPeer){try{screenPeer.close()}catch{}screenPeer=null}
+ $('screenShareVideo').srcObject=null;
+ document.body.classList.remove('screen-sharing');
+ if(screenChannel){try{await screenChannel.unsubscribe()}catch{}screenChannel=null}
+ screenClient=null;screenEventId='';
+}
+async function ensureScreenReceiver(eventId,sessionId){
+ if(!window.supabase?.createClient||screenConnecting)return;
+ screenConnecting=true;
+ try{
+ if((screenEventId&&screenEventId!==eventId)||(activeScreenSession&&activeScreenSession!==sessionId))await stopScreenReceiver();
+ if(!activeScreenSession){
+  activeScreenSession=sessionId;
+  $('screenShareVideo').srcObject=null;
+ }
+ if(!screenChannel){
+  realtimeConfig=realtimeConfig||await screenApi('public.realtimeConfig');
+  if(!realtimeConfig.configured)return;
+  screenClient=window.supabase.createClient(realtimeConfig.url,realtimeConfig.anonKey,{auth:{persistSession:false,autoRefreshToken:false}});
+  screenEventId=eventId;
+  screenChannel=screenClient.channel('blackjack-screen-'+sessionId,{config:{broadcast:{self:false}}});
+  screenChannel
+   .on('broadcast',{event:'screen:offer'},async({payload})=>{
+    if(payload?.sessionId!==activeScreenSession||payload.clientId!==screenClientId||!payload.offer)return;
+    try{
+     if(screenPeer){try{screenPeer.close()}catch{}}
+     screenPeer=new RTCPeerConnection({iceServers:realtimeConfig.iceServers||[{urls:'stun:stun.l.google.com:19302'}]});
+     screenPeer.ontrack=e=>{const video=$('screenShareVideo');video.srcObject=e.streams[0];video.play().catch(()=>{});document.body.classList.add('screen-sharing')};
+     screenPeer.onicecandidate=e=>{if(e.candidate)screenSignal('screen:screen-ice',{sessionId:activeScreenSession,clientId:screenClientId,candidate:e.candidate}).catch(()=>{})};
+     screenPeer.onconnectionstatechange=()=>{if(['failed','closed'].includes(screenPeer?.connectionState)){document.body.classList.remove('screen-sharing');screenPeer=null}};
+     await screenPeer.setRemoteDescription(payload.offer);
+     const answer=await screenPeer.createAnswer();
+     await screenPeer.setLocalDescription(answer);
+     await screenSignal('screen:answer',{sessionId:activeScreenSession,clientId:screenClientId,answer:screenPeer.localDescription});
+    }catch(e){console.error('Falha ao receber transmissão',e)}
+   })
+   .on('broadcast',{event:'screen:admin-ice'},async({payload})=>{
+    if(payload?.sessionId===activeScreenSession&&payload.clientId===screenClientId&&screenPeer&&payload.candidate)try{await screenPeer.addIceCandidate(payload.candidate)}catch(e){console.error(e)}
+   })
+   .on('broadcast',{event:'screen:session'},({payload})=>{
+    if(payload?.active&&payload.sessionId===activeScreenSession)sendScreenHello().catch(()=>{});
+   })
+   .on('broadcast',{event:'screen:stop'},({payload})=>{
+    if(payload?.sessionId===activeScreenSession)stopScreenReceiver();
+   });
+  await new Promise((resolve,reject)=>{let settled=false;screenChannel.subscribe(status=>{if(status==='SUBSCRIBED'&&!settled){settled=true;resolve()}else if(['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(status)&&!settled){settled=true;reject(Error('Falha ao conectar ao canal dos telões'))}})});
+  await sendScreenHello();
+ }else if(!screenPeer&&Date.now()-lastScreenHello>6000){
+  await sendScreenHello();
+ }
+ }finally{screenConnecting=false}
+}
+async function sendScreenHello(){
+ if(!screenChannel||!activeScreenSession)return;
+ lastScreenHello=Date.now();
+ await screenSignal('screen:hello',{sessionId:activeScreenSession,clientId:screenClientId});
+}
+async function tick(){try{const s=await api();$('eventName').textContent=s.event?.name||'NOITE DE KARAOKÊ';$('welcomeScreen').classList.toggle('hidden',!s.welcome);const capacity=Number(s.capacity||0);const available=Number(s.available||0);$('availableCount').textContent=String(Math.max(0,available));$('availabilityDetail').textContent=capacity>0?`DE ${capacity} NA NOITE`:'AGUARDANDO ABERTURA DA NOITE';showSlot('last',s.last);showSlot('current',s.current);showSlot('next',s.next);
+const currentLabel=s.current?.song||'AGUARDANDO PRÓXIMA MÚSICA';
+const nextLabel=s.next?.song||'NENHUMA NA FILA';
+$('screenShareTicker').textContent=`TOCANDO AGORA: ${currentLabel}   •   PRÓXIMA MÚSICA: ${nextLabel}   •   BLACK JACK KARAOKÊ`;
+if(s.screenSession?.active){
+ try{await ensureScreenReceiver(s.eventId,s.screenSession.sessionId);if(screenChannel&&Date.now()-lastScreenHello>6000)await sendScreenHello()}catch(e){console.error(e)}
+}else if(activeScreenSession){await stopScreenReceiver()}
+if(s.raffle){$('raffle').classList.remove('hidden');if(lastRaffleId!==s.raffle.id){lastRaffleId=s.raffle.id;$('winnerList').innerHTML='';$('spinName').textContent='BOA SORTE!';startSpin(s.raffle.spinCandidates||[])}if(s.raffle.revealed){showWinners(s.raffle.winners||[])}}else{$('raffle').classList.add('hidden');if(spinTimer){clearInterval(spinTimer);spinTimer=null}lastRaffleId=null}}catch(e){$('eventName').textContent='BLACK JACK KARAOKÊ'}}tick();setInterval(()=>{if(!document.hidden)tick()},2000);
 </script></body></html>

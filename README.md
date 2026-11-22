@@ -26,11 +26,12 @@ No projeto Netlify, em Site configuration / Environment variables, configure os 
 
 - `SUPABASE_URL` = `https://soycshrmzgtbodwxflds.supabase.co`
 - `SUPABASE_SERVICE_ROLE_KEY` = service_role key do projeto Supabase. Nunca coloque esta chave em HTML, JavaScript público ou GitHub.
+- `SUPABASE_ANON_KEY` = chave anon/public do projeto Supabase, necessária para a transmissão de tela aos telões. Nunca use a service_role no navegador.
 - `ADMIN_SESSION_SECRET` = segredo aleatório longo (pelo menos 32 caracteres; recomendado 64+).
 - `ADMIN_SETUP_KEY` = outra chave aleatória, diferente do segredo de sessão.
 - `PUBLIC_APP_URL` = `https://blackjack-karaoke-v2.netlify.app`
 
-As duas variáveis Supabase já haviam sido cadastradas anteriormente, mas confirme os valores e o escopo Functions. Não cole a service role em conversas ou arquivos públicos.
+As variáveis do Supabase devem estar cadastradas no escopo Functions. Confirme os valores antes de publicar. Não cole a service role em conversas ou arquivos públicos.
 
 Para gerar segredos localmente no Windows PowerShell:
 
@@ -158,3 +159,7 @@ Para habilitar a programação mensal, o nome do apresentador e a mensagem de bo
 No painel administrativo, abra **Configurações > Calendário de Karaokê**. Selecione uma data, marque se haverá karaokê, informe o título e, opcionalmente, o nome do apresentador. Os clientes podem consultar a programação em `/calendario.html`.
 
 Ao abrir o evento no painel, o telão mostra uma mensagem de boas-vindas usando o título e o apresentador programados para a data atual. A mensagem permanece até o início da primeira apresentação; depois disso, o telão volta ao quadro normal de músicas.
+
+
+## Transmissão de tela para os telões
+A transmissão usa `getDisplayMedia` no navegador do administrador e WebRTC com sinalização pelo Supabase Realtime. O administrador precisa autorizar o compartilhamento no Chrome/Edge e selecionar a tela ou janela. O áudio não é compartilhado. A chave pública `SUPABASE_ANON_KEY` é usada no navegador; `SUPABASE_SERVICE_ROLE_KEY` permanece somente no backend. O STUN público é a configuração desta versão. Se os telões estiverem em outra rede e a conexão direta falhar, será necessário integrar um servidor TURN com credenciais temporárias; não coloque credenciais TURN permanentes em variáveis públicas ou em repositórios.
