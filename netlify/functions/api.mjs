@@ -823,6 +823,16 @@ async function handleAdmin(action, body, req) {
     let query = db().from('presentations').select('id,event_id,table_id,table_number,tab_number,p1,p2,p3,song,sung_at').eq('status', 'SUNG').order('sung_at', { ascending: false, nullsFirst: false }).limit(1000);
     if (eventId) query = query.eq('event_id', eventId);
     const { data: presentations, error } = await query; if (error) throw error;
+    const searchedTab = text(body.tabNumber);
+    let tabSummary = null;
+    if (searchedTab) {
+      if (!eventId) throw new Error('Selecione uma noite específica para consultar o total da comanda.');
+      const { count: totalSongs, error: tabCountError } = await db().from('presentations')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_id', eventId).eq('tab_number', searchedTab).eq('status', 'SUNG');
+      if (tabCountError) throw tabCountError;
+      tabSummary = { tabNumber: searchedTab, totalSongs: Number(totalSongs || 0), eventId };
+    }
     const ids = (presentations || []).map(p => p.id);
     const { data: people, error: peopleError } = ids.length
       ? await db().from('participants').select('id,event_id,presentation_id,name,normalized_name,external_registered_at,external_registered_by,created_at').in('presentation_id', ids).order('created_at', { ascending: true })
@@ -864,7 +874,7 @@ async function handleAdmin(action, body, req) {
       row.song_number = next;
     }
     rows.sort((a, b) => new Date(b.sung_at || 0) - new Date(a.sung_at || 0));
-    return { ok: true, presentations: rows };
+    return { ok: true, presentations: rows, tabSummary };
   }
   if (action === 'admin.history.mark') {
     const participantId = text(body.participantId);
