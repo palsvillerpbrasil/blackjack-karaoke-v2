@@ -216,6 +216,48 @@ async function queueForEvent(event) {
     .map(clean);
   return { current: clean(current), last: clean(last), queue: ordered, sung, manualMode: Boolean(state?.manual_mode), manualCount: manual.length, automaticActive: true, cursor };
 }
+
+// Shared response helpers used by the administrator dashboard and queue actions.
+async function adminQueue(event) {
+  const queue = await queueForEvent(event);
+  return { event, ...queue };
+}
+
+async function dashboard() {
+  const event = await latestEvent();
+  const client = db();
+  const [tablesResult, presentationsResult, releasedResult] = await Promise.all([
+    client.from('dining_tables').select('id', { count: 'exact', head: true }),
+    event
+      ? client.from('presentations').select('status').eq('event_id', event.id)
+      : Promise.resolve({ data: [], error: null }),
+    event
+      ? client.from('tab_releases').select('tab_number', { count: 'exact', head: true }).eq('event_id', event.id).eq('enabled', true)
+      : Promise.resolve({ count: 0, error: null })
+  ]);
+  if (tablesResult.error) throw tablesResult.error;
+  if (presentationsResult.error) throw presentationsResult.error;
+  if (releasedResult.error) throw releasedResult.error;
+  const rows = presentationsResult.data || [];
+  const reserved = rows.filter(row => ['PENDING', 'PLAYING'].includes(row.status)).length;
+  const sung = rows.filter(row => row.status === 'SUNG').length;
+  const cancelled = rows.filter(row => row.status === 'CANCELLED').length;
+  const capacity = Number(event?.capacity || 0);
+  return {
+    event,
+    tables: Number(tablesResult.count || 0),
+    releasedTabs: Number(releasedResult.count || 0),
+    counts: {
+      reserved,
+      sung,
+      cancelled,
+      waiting: rows.filter(row => row.status === 'PENDING').length,
+      available: Math.max(0, capacity - reserved - sung),
+      capacity
+    }
+  };
+}
+
 function publicPresentation(p) {
   if (!p) return null;
   return { id: p.id, table_number: p.table_number, p1: p.p1, p2: p.p2, p3: p.p3, song: p.song, status: p.status, created_at: p.created_at, started_at: p.started_at, sung_at: p.sung_at };
