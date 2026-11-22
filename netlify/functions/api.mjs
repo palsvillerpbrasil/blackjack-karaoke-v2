@@ -762,7 +762,7 @@ async function handleAdmin(action, body, req) {
     const { data: presentations, error } = await query; if (error) throw error;
     const ids = (presentations || []).map(p => p.id);
     const { data: people, error: peopleError } = ids.length
-      ? await db().from('participants').select('id,event_id,presentation_id,name,external_registered_at,external_registered_by,created_at').in('presentation_id', ids).order('created_at', { ascending: true })
+      ? await db().from('participants').select('id,event_id,presentation_id,name,normalized_name,external_registered_at,external_registered_by,created_at').in('presentation_id', ids).order('created_at', { ascending: true })
       : { data: [], error: null };
     if (peopleError) throw peopleError;
     const byPresentation = new Map();
@@ -777,44 +777,67 @@ async function handleAdmin(action, body, req) {
         for (const person of members) rows.push({
           id: person.id, presentation_id: presentation.id, event_id: presentation.event_id,
           table_number: presentation.table_number, tab_number: presentation.tab_number,
-          name: person.name, song: presentation.song, sung_at: presentation.sung_at,
+          name: person.name, normalized_name: person.normalized_name || norm(person.name),
+          song: presentation.song, sung_at: presentation.sung_at,
           external_registered_at: person.external_registered_at,
           external_registered_by: person.external_registered_by, markable: true
         });
       } else {
-        // Compatibilidade com históricos antigos que ainda não tenham linhas em participants.
         for (const name of [presentation.p1, presentation.p2, presentation.p3].filter(Boolean)) rows.push({
           id: null, presentation_id: presentation.id, event_id: presentation.event_id,
           table_number: presentation.table_number, tab_number: presentation.tab_number,
-          name, song: presentation.song, sung_at: presentation.sung_at,
+          name, normalized_name: norm(name), song: presentation.song, sung_at: presentation.sung_at,
           external_registered_at: null, external_registered_by: null, markable: false
         });
       }
     }
+    // Número sequencial por pessoa e comanda, calculado em ordem cronológica.
+    const chronological = rows.slice().sort((a, b) => new Date(a.sung_at || 0) - new Date(b.sung_at || 0));
+    const counts = new Map();
+    for (const row of chronological) {
+      const key = `${row.event_id}|${row.tab_number || ''}|${row.normalized_name}`;
+      const next = (counts.get(key) || 0) + 1;
+      counts.set(key, next);
+      row.song_number = next;
+    }
+    rows.sort((a, b) => new Date(b.sung_at || 0) - new Date(a.sung_at || 0));
     return { ok: true, presentations: rows };
   }
   if (action === 'admin.history.mark') {
     const participantId = text(body.participantId);
     if (!participantId) throw new Error('Participante não informado.');
     const { data: person, error: personError } = await db().from('participants')
-      .select('id,event_id,presentation_id,name').eq('id', participantId).single();
+      .select('id,event_id,presentation_id,name,normalized_name').eq('id', participantId).single();
     if (personError) throw personError;
     const { data: presentation, error: presentationError } = await db().from('presentations')
-      .select('id,event_id,status').eq('id', person.presentation_id).single();
+      .select('id,event_id,status,tab_number,sung_at').eq('id', person.presentation_id).single();
     if (presentationError) throw presentationError;
     if (presentation.status !== 'SUNG' || presentation.event_id !== person.event_id) {
       throw new Error('Só é possível marcar participantes de apresentações já cantadas.');
     }
     const registered = body.registered === true;
+    let sameNightQuery = db().from('presentations')
+      .select('id').eq('event_id', person.event_id).eq('tab_number', presentation.tab_number).eq('status', 'SUNG');
+    sameNightQuery = presentation.sung_at
+      ? sameNightQuery.lte('sung_at', presentation.sung_at)
+      : sameNightQuery.eq('id', presentation.id);
+    const { data: sameNight, error: sameNightError } = await sameNightQuery;
+    if (sameNightError) throw sameNightError;
+    const presentationIds = (sameNight || []).map(x => x.id);
+    const { data: samePerson, error: samePersonError } = presentationIds.length
+      ? await db().from('participants').select('id').in('presentation_id', presentationIds).eq('normalized_name', person.normalized_name)
+      : { data: [], error: null };
+    if (samePersonError) throw samePersonError;
+    const ids = (samePerson || []).map(x => x.id);
+    if (!ids.length) throw new Error('Não foram encontrados outros registros desta pessoa nesta comanda.');
     const changes = registered
       ? { external_registered_at: new Date().toISOString(), external_registered_by: admin.display_name }
       : { external_registered_at: null, external_registered_by: null };
-    const { data, error } = await db().from('participants').update(changes).eq('id', participantId)
-      .select('id,external_registered_at,external_registered_by').single();
+    const { error } = await db().from('participants').update(changes).in('id', ids);
     if (error) throw error;
     await audit(admin.display_name, registered ? 'HISTORY_EXTERNAL_REGISTERED' : 'HISTORY_EXTERNAL_UNREGISTERED',
-      { participant_id: participantId, participant_name: person.name }, person.event_id);
-    return { ok: true, participant: data };
+      { participant_ids: ids, participant_name: person.name, tab_number: presentation.tab_number }, person.event_id);
+    return { ok: true, updated: ids.length };
   }
   if (action === 'admin.admins.list') {
     const { data, error } = await db().from('admins').select('id,display_name,role,active,created_at').order('created_at');
