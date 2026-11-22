@@ -45,3 +45,16 @@ Nova migração incremental: `supabase/migrations/20261121_calendar_public_list_
 - Cada programação passa a ter horário de início configurável, com padrão de 19h para datas já cadastradas e novas datas.
 - A lista apresenta dia da semana, data, horário, título e apresentador.
 - A migração apenas adiciona a coluna `start_time`; não apaga nem altera datas, títulos ou apresentadores existentes.
+
+
+## Atualização funcional — 22/11/2026
+
+Nova migração incremental: `supabase/migrations/20261122_screen_queue_history.sql`.
+
+- Adiciona controle de transmissão ativa por evento, sem expor a chave `service_role` no navegador.
+- Permite inserir uma apresentação manual, aumenta a capacidade em uma unidade e mantém a apresentação oculta do telão até o início.
+- Permite devolver uma apresentação cantada à fila, com posição inicial solicitada depois das três primeiras músicas.
+- Atualiza a ação de início para revelar no telão apresentações manuais quando começarem.
+- A fila passa a contar músicas por comanda, sem zerar o histórico quando a mesa muda.
+- A primeira música da comanda recebe prioridade somente a partir da quarta posição; as músicas seguintes seguem o rodízio.
+- Não apaga apresentações, comandas, eventos, mesas, tokens ou histórico existente.

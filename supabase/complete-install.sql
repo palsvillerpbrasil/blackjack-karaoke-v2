@@ -600,3 +600,437 @@ revoke all on function public.bj_admin_update_tab(uuid,text,text,text,text) from
 grant execute on function public.bj_queue_pin_position(uuid,text,integer,text) to service_role;
 grant execute on function public.bj_queue_unpin_position(uuid,text,text) to service_role;
 grant execute on function public.bj_admin_update_tab(uuid,text,text,text,text) to service_role;
+
+
+-- INCLUDED MIGRATION: 20261121_queue_tabs_history.sql
+-- BLACK JACK KARAOKE V2 — AJUSTES DE FILA, COMANDAS E HISTÓRICO
+-- Migração incremental: não apaga nem recria dados existentes.
+
+-- Converte prioridades antigas que tenham somente manual_rank para posições explícitas.
+update public.presentations
+set manual_position=greatest(1,round(manual_rank/1000.0)::integer)
+where manual_position is null and manual_rank is not null and status='PENDING';
+
+
+create or replace function public.bj_queue_pin_position(
+  p_event_id uuid, p_presentation_id text, p_position integer, p_actor text
+) returns jsonb
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_count integer; v_old_position integer; v_target integer;
+begin
+  perform 1 from public.events where id=p_event_id for update;
+  if not found then raise exception 'Evento não encontrado.'; end if;
+  select count(*) into v_count from public.presentations where event_id=p_event_id and status='PENDING';
+  if v_count=0 then raise exception 'Não há apresentações aguardando.'; end if;
+  select manual_position into v_old_position from public.presentations
+    where id=p_presentation_id and event_id=p_event_id and status='PENDING' for update;
+  if not found then raise exception 'Apresentação não encontrada na fila.'; end if;
+  if p_position is null or p_position<1 then raise exception 'Informe uma posição válida.'; end if;
+  v_target:=least(p_position,v_count);
+
+  if v_old_position is null then
+    update public.presentations set manual_position=manual_position+1,manual_rank=(manual_position+1)*1000,updated_at=now()
+      where event_id=p_event_id and status='PENDING' and id<>p_presentation_id and manual_position is not null and manual_position>=v_target;
+  elsif v_old_position<v_target then
+    update public.presentations set manual_position=manual_position-1,manual_rank=(manual_position-1)*1000,updated_at=now()
+      where event_id=p_event_id and status='PENDING' and id<>p_presentation_id and manual_position>v_old_position and manual_position<=v_target;
+  elsif v_old_position>v_target then
+    update public.presentations set manual_position=manual_position+1,manual_rank=(manual_position+1)*1000,updated_at=now()
+      where event_id=p_event_id and status='PENDING' and id<>p_presentation_id and manual_position>=v_target and manual_position<v_old_position;
+  end if;
+
+  update public.presentations set manual_position=v_target,manual_rank=v_target*1000,updated_at=now()
+    where id=p_presentation_id and event_id=p_event_id and status='PENDING';
+  insert into public.queue_state(event_id,manual_mode,updated_at) values(p_event_id,true,now())
+    on conflict(event_id) do update set manual_mode=true,updated_at=now();
+  insert into public.audit_logs(actor,action,details) values(coalesce(p_actor,'admin'),'QUEUE_ITEM_PINNED',
+    jsonb_build_object('event_id',p_event_id,'presentation_id',p_presentation_id,'position',v_target));
+  return jsonb_build_object('ok',true,'presentation_id',p_presentation_id,'position',v_target,'manual_adjustments_preserved',true);
+end $$;
+
+create or replace function public.bj_queue_unpin_position(
+  p_event_id uuid, p_presentation_id text, p_actor text
+) returns jsonb
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_old_position integer;
+begin
+  perform 1 from public.events where id=p_event_id for update;
+  if not found then raise exception 'Evento não encontrado.'; end if;
+  select manual_position into v_old_position from public.presentations
+    where id=p_presentation_id and event_id=p_event_id and status='PENDING' for update;
+  if not found then raise exception 'Apresentação não encontrada na fila.'; end if;
+  if v_old_position is null then return jsonb_build_object('ok',true,'unchanged',true); end if;
+  update public.presentations set manual_position=manual_position-1,manual_rank=(manual_position-1)*1000,updated_at=now()
+    where event_id=p_event_id and status='PENDING' and id<>p_presentation_id and manual_position>v_old_position;
+  update public.presentations set manual_position=null,manual_rank=null,updated_at=now()
+    where id=p_presentation_id and event_id=p_event_id and status='PENDING';
+  insert into public.audit_logs(actor,action,details) values(coalesce(p_actor,'admin'),'QUEUE_ITEM_UNPINNED',
+    jsonb_build_object('event_id',p_event_id,'presentation_id',p_presentation_id));
+  return jsonb_build_object('ok',true,'presentation_id',p_presentation_id,'automatic',true);
+end $$;
+
+-- O automático permanece ativo para toda a fila; os itens ajustados manualmente
+-- continuam como exceções pontuais e não são apagados por este comando.
+create or replace function public.bj_queue_auto(p_event_id uuid,p_actor text) returns jsonb
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_preserved integer;
+begin
+  perform 1 from public.events where id=p_event_id for update;
+  if not found then raise exception 'Evento não encontrado.'; end if;
+  select count(*) into v_preserved from public.presentations where event_id=p_event_id and status='PENDING' and manual_position is not null;
+  insert into public.queue_state(event_id,manual_mode,updated_at) values(p_event_id,false,now())
+    on conflict(event_id) do update set manual_mode=false,updated_at=now();
+  insert into public.audit_logs(actor,action,details) values(coalesce(p_actor,'admin'),'QUEUE_AUTO_RESTORED',
+    jsonb_build_object('event_id',p_event_id,'manual_positions_preserved',v_preserved));
+  return jsonb_build_object('ok',true,'manual_positions_preserved',v_preserved,'automatic_active',true);
+end $$;
+
+create or replace function public.bj_admin_update_tab(
+  p_event_id uuid, p_old_tab text, p_new_tab text, p_name text, p_actor text
+) returns jsonb
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare
+  v_old public.event_tabs%rowtype;
+  v_old_tab text:=upper(trim(coalesce(p_old_tab,'')));
+  v_new_tab text:=upper(trim(coalesce(p_new_tab,'')));
+  v_name text:=trim(coalesce(p_name,''));
+  v_new_norm text;
+  v_presentations_updated integer:=0;
+begin
+  if v_old_tab !~ '^[A-Z0-9]{1,10}$' or v_new_tab !~ '^[A-Z0-9]{1,10}$' then
+    raise exception 'Comanda inválida. Use letras e números, até 10 caracteres.';
+  end if;
+  if length(v_name)<2 or length(v_name)>70 then raise exception 'O nome deve ter entre 2 e 70 caracteres.'; end if;
+  v_new_norm:=public.bj_norm(v_name);
+  perform 1 from public.events where id=p_event_id for update;
+  if not found then raise exception 'Evento não encontrado.'; end if;
+  select * into v_old from public.event_tabs where event_id=p_event_id and tab_number=v_old_tab for update;
+  if not found then raise exception 'Comanda cadastrada não encontrada.'; end if;
+
+  if v_new_tab<>v_old_tab then
+    if exists(select 1 from public.event_tabs where event_id=p_event_id and tab_number=v_new_tab) then
+      raise exception 'A nova comanda já está vinculada a outra pessoa.';
+    end if;
+    if not exists(select 1 from public.tab_releases where event_id=p_event_id and tab_number=v_new_tab and enabled=true) then
+      raise exception 'Libere a nova comanda antes de fazer a troca.';
+    end if;
+    if exists(select 1 from public.presentations where event_id=p_event_id and tab_number=v_new_tab and status in ('PENDING','PLAYING')) then
+      raise exception 'A nova comanda já possui uma apresentação aguardando ou tocando.';
+    end if;
+  end if;
+
+  if v_old.normalized_name<>v_new_norm then
+    update public.participants pt set name=v_name,normalized_name=v_new_norm
+      from public.presentations pr
+      where pt.presentation_id=pr.id and pr.event_id=p_event_id and pr.tab_number=v_old_tab
+        and public.bj_norm(pr.p1)=v_old.normalized_name and pt.normalized_name=v_old.normalized_name;
+    update public.presentations set p1=v_name,updated_at=now()
+      where event_id=p_event_id and tab_number=v_old_tab and public.bj_norm(p1)=v_old.normalized_name;
+    -- participant_stats é agregado por nome/mesa. Só movemos o agregado
+    -- quando nenhuma outra comanda da noite usa o mesmo nome antigo.
+    if not exists(select 1 from public.event_tabs where event_id=p_event_id and tab_number<>v_old_tab and normalized_name=v_old.normalized_name) then
+      insert into public.participant_stats(event_id,table_id,normalized_name,name,songs_sung,last_sung_at)
+        select event_id,table_id,v_new_norm,v_name,songs_sung,last_sung_at from public.participant_stats
+        where event_id=p_event_id and normalized_name=v_old.normalized_name
+        on conflict(event_id,table_id,normalized_name) do update set
+          songs_sung=public.participant_stats.songs_sung+excluded.songs_sung,
+          last_sung_at=greatest(public.participant_stats.last_sung_at,excluded.last_sung_at),name=excluded.name;
+      delete from public.participant_stats where event_id=p_event_id and normalized_name=v_old.normalized_name;
+    end if;
+  else
+    update public.presentations set p1=v_name,updated_at=now()
+      where event_id=p_event_id and tab_number=v_old_tab and public.bj_norm(p1)=v_old.normalized_name;
+    update public.participants pt set name=v_name
+      from public.presentations pr
+      where pt.presentation_id=pr.id and pr.event_id=p_event_id and pr.tab_number=v_old_tab
+        and public.bj_norm(pr.p1)=v_old.normalized_name and pt.normalized_name=v_old.normalized_name;
+    update public.participant_stats set name=v_name where event_id=p_event_id and normalized_name=v_old.normalized_name;
+  end if;
+
+  update public.presentations set tab_number=v_new_tab,updated_at=now()
+    where event_id=p_event_id and tab_number=v_old_tab;
+  get diagnostics v_presentations_updated=row_count;
+  update public.event_tabs set tab_number=v_new_tab,participant_name=v_name,normalized_name=v_new_norm
+    where event_id=p_event_id and tab_number=v_old_tab;
+  insert into public.audit_logs(event_id,actor,action,details)
+    values(p_event_id,coalesce(p_actor,'admin'),'TAB_IDENTITY_UPDATED',jsonb_build_object(
+      'old_tab',v_old_tab,'new_tab',v_new_tab,'old_name',v_old.participant_name,'new_name',v_name,'presentations_updated',v_presentations_updated));
+  return jsonb_build_object('ok',true,'old_tab',v_old_tab,'tab',v_new_tab,'name',v_name,'presentations_updated',v_presentations_updated);
+end $$;
+
+
+-- Editar uma apresentação individual não altera a identidade global da comanda.
+-- Correções globais de nome/comanda são feitas por bj_admin_update_tab.
+create or replace function public.bj_edit_presentation(
+  p_presentation_id text,p_p1 text,p_p2 text,p_p3 text,p_song text,p_actor text
+) returns jsonb
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_p public.presentations%rowtype; v_names text[]; v_norms text[]; v_p2 text:=nullif(trim(coalesce(p_p2,'')),''); v_p3 text:=nullif(trim(coalesce(p_p3,'')),'');
+begin
+  select * into v_p from public.presentations where id=p_presentation_id for update;
+  if not found then raise exception 'Apresentação não encontrada.'; end if;
+  if v_p.status not in ('PENDING','PLAYING') then raise exception 'Somente apresentações aguardando podem ser editadas.'; end if;
+  if length(trim(coalesce(p_p1,'')))<2 or length(trim(p_p1))>70 then raise exception 'Nome do participante principal inválido.'; end if;
+  if length(trim(coalesce(p_song,'')))<2 or length(trim(p_song))>150 then raise exception 'Nome da música inválido.'; end if;
+  v_names:=array[trim(p_p1)]||case when v_p2 is null then array[]::text[] else array[v_p2] end||case when v_p3 is null then array[]::text[] else array[v_p3] end;
+  v_norms:=array(select public.bj_norm(x) from unnest(v_names) x);
+  if (select count(distinct x) from unnest(v_norms) x)<>cardinality(v_norms) then raise exception 'Não repita participantes.'; end if;
+  perform 1 from public.events where id=v_p.event_id for update;
+  update public.presentations set p1=trim(p_p1),p2=v_p2,p3=v_p3,song=trim(p_song),updated_at=now() where id=v_p.id;
+  delete from public.participants where presentation_id=v_p.id;
+  insert into public.participants(event_id,presentation_id,table_id,name,normalized_name)
+    select v_p.event_id,v_p.id,v_p.table_id,x,public.bj_norm(x) from unnest(v_names) x;
+  insert into public.audit_logs(event_id,actor,action,details)
+    values(v_p.event_id,coalesce(p_actor,'admin'),'PRESENTATION_EDITED',jsonb_build_object('presentation_id',v_p.id,'song',trim(p_song)));
+  return jsonb_build_object('ok',true,'id',v_p.id);
+end $$;
+
+revoke all on function public.bj_queue_pin_position(uuid,text,integer,text) from public,anon,authenticated;
+revoke all on function public.bj_queue_unpin_position(uuid,text,text) from public,anon,authenticated;
+revoke all on function public.bj_admin_update_tab(uuid,text,text,text,text) from public,anon,authenticated;
+grant execute on function public.bj_queue_pin_position(uuid,text,integer,text) to service_role;
+grant execute on function public.bj_queue_unpin_position(uuid,text,text) to service_role;
+grant execute on function public.bj_admin_update_tab(uuid,text,text,text,text) to service_role;
+
+
+
+-- INCLUDED MIGRATION: 20261121_collaborator_history_tracking.sql
+-- BLACK JACK KARAOKE V2 — PERFIL COLABORADOR E CONTROLE DE LANÇAMENTO DO HISTÓRICO
+-- Migração incremental e idempotente. Não apaga nem recria dados existentes.
+
+begin;
+
+alter table public.participants
+  add column if not exists external_registered_at timestamptz,
+  add column if not exists external_registered_by text;
+
+create index if not exists participants_external_registered_idx
+  on public.participants(event_id, external_registered_at)
+  where external_registered_at is not null;
+
+-- Garante que cada integrante das apresentações já cantadas tenha seu próprio registro
+-- para que a marcação seja individual, inclusive em apresentações antigas/importadas.
+insert into public.participants(event_id, presentation_id, table_id, name, normalized_name)
+select p.event_id, p.id, p.table_id, person.name, public.bj_norm(person.name)
+from public.presentations p
+cross join lateral (values (p.p1), (p.p2), (p.p3)) as person(name)
+where p.status = 'SUNG'
+  and nullif(trim(person.name), '') is not null
+  and not exists (
+    select 1
+    from public.participants existing
+    where existing.presentation_id = p.id
+      and existing.normalized_name = public.bj_norm(person.name)
+  );
+
+commit;
+
+
+
+-- INCLUDED MIGRATION: 20261121_calendar_presenter_welcome.sql
+-- BLACK JACK KARAOKE V2 — CALENDARIO DE EVENTOS E APRESENTADOR
+-- Migração incremental e idempotente. Não apaga nem altera registros existentes.
+create table if not exists public.karaoke_calendar (
+  id uuid primary key default gen_random_uuid(),
+  event_date date not null unique,
+  title text,
+  presenter_name text,
+  has_karaoke boolean not null default true,
+  created_by text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.karaoke_calendar add column if not exists presenter_name text;
+alter table public.karaoke_calendar add column if not exists has_karaoke boolean not null default true;
+alter table public.karaoke_calendar add column if not exists created_by text;
+alter table public.karaoke_calendar add column if not exists created_at timestamptz not null default now();
+alter table public.karaoke_calendar add column if not exists updated_at timestamptz not null default now();
+create index if not exists karaoke_calendar_event_date_idx on public.karaoke_calendar(event_date) where has_karaoke = true;
+alter table public.karaoke_calendar enable row level security;
+
+
+
+-- INCLUDED MIGRATION: 20261121_calendar_public_list_time.sql
+-- BLACK JACK KARAOKE V2 — HORARIO DOS EVENTOS PROGRAMADOS
+-- Incremental e idempotente: mantém as datas e os apresentadores existentes.
+alter table public.karaoke_calendar
+  add column if not exists start_time time not null default '19:00';
+
+update public.karaoke_calendar
+set start_time = '19:00'
+where start_time is null;
+
+
+
+-- INCLUDED MIGRATION: 20261122_screen_queue_history.sql
+-- BLACK JACK KARAOKE V2 — TRANSMISSÃO, FILA E HISTÓRICO
+-- Migração incremental e idempotente. Não apaga nem recria dados existentes.
+
+begin;
+
+alter table public.presentations
+  add column if not exists hide_on_screen boolean not null default false;
+
+create table if not exists public.screen_sessions (
+  event_id uuid primary key references public.events(id) on delete cascade,
+  session_id text not null,
+  active boolean not null default false,
+  started_by text,
+  updated_at timestamptz not null default now(),
+  expires_at timestamptz
+);
+alter table public.screen_sessions enable row level security;
+
+-- START libera a apresentação para aparecer no telão, inclusive quando foi
+-- criada manualmente e estava oculta até o início.
+create or replace function public.bj_presentation_action(
+  p_action text,p_presentation_id text,p_actor text
+) returns jsonb
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_p public.presentations%rowtype; v_status text;
+begin
+  select * into v_p from public.presentations where id=p_presentation_id for update;
+  if not found then raise exception 'Apresentação não encontrada.'; end if;
+  perform 1 from public.events where id=v_p.event_id for update;
+  if p_action='START' then
+    if v_p.status not in ('PENDING','PLAYING') then raise exception 'Esta apresentação não está aguardando.'; end if;
+    if exists(select 1 from public.presentations where event_id=v_p.event_id and status='PLAYING' and id<>v_p.id) then raise exception 'Já existe uma apresentação tocando agora.'; end if;
+    update public.presentations set status='PLAYING',started_at=coalesce(started_at,now()),hide_on_screen=false,updated_at=now() where id=v_p.id returning status into v_status;
+  elsif p_action='SUNG' then
+    if v_p.status not in ('PENDING','PLAYING') then raise exception 'Esta apresentação não pode ser marcada como cantada.'; end if;
+    update public.presentations set status='SUNG',sung_at=now(),updated_at=now() where id=v_p.id returning status into v_status;
+    insert into public.participant_stats(event_id,table_id,normalized_name,name,songs_sung,last_sung_at)
+      select v_p.event_id,pt.table_id,pt.normalized_name,pt.name,1,now() from public.participants pt where pt.presentation_id=v_p.id
+      on conflict(event_id,table_id,normalized_name) do update set songs_sung=public.participant_stats.songs_sung+1,last_sung_at=excluded.last_sung_at,name=excluded.name;
+    insert into public.queue_state(event_id,last_sung_table_number,updated_at) values(v_p.event_id,v_p.table_number,now())
+      on conflict(event_id) do update set last_sung_table_number=excluded.last_sung_table_number,updated_at=now();
+  elsif p_action='CANCEL' then
+    if v_p.status not in ('PENDING','PLAYING') then raise exception 'Somente apresentações aguardando podem ser canceladas.'; end if;
+    update public.presentations set status='CANCELLED',cancelled_at=now(),updated_at=now() where id=v_p.id returning status into v_status;
+  else raise exception 'Ação de apresentação inválida.'; end if;
+  insert into public.audit_logs(event_id,actor,action,details)
+    values(v_p.event_id,coalesce(p_actor,'admin'),'PRESENTATION_'||p_action,
+      jsonb_build_object('presentation_id',v_p.id,'table',v_p.table_number,'tab',v_p.tab_number));
+  return jsonb_build_object('ok',true,'id',v_p.id,'status',v_status);
+end $$;
+
+create or replace function public.bj_admin_add_presentation(
+  p_event_id uuid,p_table_id text,p_tab text,p_p1 text,p_p2 text,p_p3 text,p_song text,p_actor text
+) returns jsonb
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare
+  v_event public.events%rowtype;
+  v_table public.dining_tables%rowtype;
+  v_tab text:=upper(trim(coalesce(p_tab,'')));
+  v_p1 text:=trim(coalesce(p_p1,''));
+  v_p2 text:=nullif(trim(coalesce(p_p2,'')),'');
+  v_p3 text:=nullif(trim(coalesce(p_p3,'')),'');
+  v_song text:=trim(coalesce(p_song,''));
+  v_old public.event_tabs%rowtype;
+  v_id text;
+  v_names text[];
+  v_norms text[];
+begin
+  if v_tab !~ '^[A-Z0-9]{1,10}$' then raise exception 'Comanda inválida. Use letras e números, até 10 caracteres.'; end if;
+  if length(v_p1)<2 or length(v_p1)>70 then raise exception 'Informe o nome do participante principal.'; end if;
+  if (v_p2 is not null and length(v_p2)>70) or (v_p3 is not null and length(v_p3)>70) then raise exception 'Nome de participante muito longo.'; end if;
+  if length(v_song)<2 or length(v_song)>150 then raise exception 'Informe o nome da música (2 a 150 caracteres).'; end if;
+
+  v_names:=array[v_p1]||case when v_p2 is null then array[]::text[] else array[v_p2] end||case when v_p3 is null then array[]::text[] else array[v_p3] end;
+  v_norms:=array(select public.bj_norm(x) from unnest(v_names) x);
+  if (select count(distinct x) from unnest(v_norms) x)<>cardinality(v_norms) then raise exception 'Não repita participantes na mesma apresentação.'; end if;
+
+  select * into v_event from public.events where id=p_event_id for update;
+  if not found or v_event.status='FINISHED' then raise exception 'A noite selecionada não está disponível.'; end if;
+  select * into v_table from public.dining_tables where id=p_table_id and active=true;
+  if not found then raise exception 'Selecione uma mesa ativa.'; end if;
+
+  select * into v_old from public.event_tabs where event_id=v_event.id and tab_number=v_tab for update;
+  if found then
+    if v_old.normalized_name<>public.bj_norm(v_p1) then
+      raise exception 'O nome informado não corresponde ao cadastro desta comanda.';
+    end if;
+  else
+    insert into public.event_tabs(event_id,tab_number,participant_name,normalized_name)
+      values(v_event.id,v_tab,v_p1,public.bj_norm(v_p1));
+  end if;
+
+  if exists(select 1 from public.presentations where event_id=v_event.id and tab_number=v_tab and status in ('PENDING','PLAYING')) then
+    raise exception 'Esta comanda já possui uma apresentação aguardando ou tocando.';
+  end if;
+
+  insert into public.tab_releases(event_id,tab_number,enabled)
+    values(v_event.id,v_tab,true)
+    on conflict(event_id,tab_number) do update set enabled=true;
+
+  v_id:='M-'||upper(substr(replace(gen_random_uuid()::text,'-',''),1,12));
+  update public.events set capacity=capacity+1 where id=v_event.id;
+  insert into public.presentations(
+    id,event_id,table_id,table_number,tab_number,p1,p2,p3,song,status,request_id,hide_on_screen
+  ) values(
+    v_id,v_event.id,v_table.id,v_table.number,v_tab,v_p1,v_p2,v_p3,v_song,'PENDING',
+    'MANUAL-'||replace(gen_random_uuid()::text,'-',''),true
+  );
+  insert into public.participants(event_id,presentation_id,table_id,name,normalized_name)
+    select v_event.id,v_id,v_table.id,x,public.bj_norm(x) from unnest(v_names) x;
+  insert into public.queue_state(event_id) values(v_event.id) on conflict(event_id) do nothing;
+  insert into public.audit_logs(event_id,actor,action,details)
+    values(v_event.id,coalesce(p_actor,'admin'),'MANUAL_PRESENTATION_ADDED',
+      jsonb_build_object('presentation_id',v_id,'table',v_table.number,'tab',v_tab,'song',v_song,'capacity_increased',1));
+  return jsonb_build_object('ok',true,'id',v_id,'table_number',v_table.number,'tab_number',v_tab,'capacity_increased',1,'hidden_on_screen_until_started',true);
+end $$;
+
+create or replace function public.bj_restore_sung_presentation(
+  p_presentation_id text,p_actor text
+) returns jsonb
+language plpgsql security definer set search_path=public,pg_temp as $$
+declare v_p public.presentations%rowtype; v_result jsonb;
+begin
+  select * into v_p from public.presentations where id=p_presentation_id for update;
+  if not found then raise exception 'Apresentação não encontrada.'; end if;
+  if v_p.status<>'SUNG' then raise exception 'Somente músicas já cantadas podem voltar para a fila.'; end if;
+  perform 1 from public.events where id=v_p.event_id for update;
+  if exists(
+    select 1 from public.presentations
+    where event_id=v_p.event_id and tab_number=v_p.tab_number
+      and status in ('PENDING','PLAYING') and id<>v_p.id
+  ) then raise exception 'Esta comanda já possui outra música aguardando ou tocando. Conclua ou cancele essa música antes de devolver a anterior.'; end if;
+
+  update public.participant_stats ps
+    set songs_sung=greatest(0,ps.songs_sung-1),
+        last_sung_at=(
+          select max(pr.sung_at)
+          from public.participants pt
+          join public.presentations pr on pr.id=pt.presentation_id
+          where pr.event_id=v_p.event_id and pr.status='SUNG'
+            and pt.table_id=ps.table_id and pt.normalized_name=ps.normalized_name
+            and pr.id<>v_p.id
+        )
+    from public.participants pt
+    where pt.presentation_id=v_p.id and ps.event_id=v_p.event_id
+      and ps.table_id=pt.table_id and ps.normalized_name=pt.normalized_name;
+  delete from public.participant_stats ps
+    using public.participants pt
+    where pt.presentation_id=v_p.id and ps.event_id=v_p.event_id
+      and ps.table_id=pt.table_id and ps.normalized_name=pt.normalized_name
+      and ps.songs_sung<=0;
+
+  update public.presentations
+    set status='PENDING',sung_at=null,started_at=null,manual_position=null,manual_rank=null,
+        hide_on_screen=false,updated_at=now()
+    where id=v_p.id;
+
+  select public.bj_queue_pin_position(v_p.event_id,v_p.id,4,p_actor) into v_result;
+  insert into public.audit_logs(event_id,actor,action,details)
+    values(v_p.event_id,coalesce(p_actor,'admin'),'PRESENTATION_RESTORED_TO_QUEUE',
+      jsonb_build_object('presentation_id',v_p.id,'default_position',4));
+  return jsonb_build_object('ok',true,'id',v_p.id,'status','PENDING','position',coalesce((v_result->>'position')::integer,4));
+end $$;
+
+revoke all on function public.bj_admin_add_presentation(uuid,text,text,text,text,text,text,text) from public,anon,authenticated;
+revoke all on function public.bj_restore_sung_presentation(text,text) from public,anon,authenticated;
+grant execute on function public.bj_admin_add_presentation(uuid,text,text,text,text,text,text,text) to service_role;
+grant execute on function public.bj_restore_sung_presentation(text,text) to service_role;
+
+commit;

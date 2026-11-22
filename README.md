@@ -41,11 +41,16 @@ node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'
 Gere dois valores diferentes e use um em cada variável. Guarde `ADMIN_SETUP_KEY` até concluir o primeiro acesso. Depois de criar o primeiro administrador, você pode remover `ADMIN_SETUP_KEY` das variáveis da Netlify.
 
 ## 2. Aplicar a migração no Supabase
-O `schema.sql` anterior já foi executado. Agora abra Supabase → SQL Editor → New query e execute o conteúdo integral de:
+O `schema.sql` anterior já foi executado. Agora abra Supabase → SQL Editor → New query e execute, nesta ordem, o conteúdo integral dos arquivos:
 
-`supabase/migrations/20261121_complete_system.sql`
+1. `supabase/migrations/20261121_complete_system.sql`
+2. `supabase/migrations/20261121_queue_tabs_history.sql`
+3. `supabase/migrations/20261121_collaborator_history_tracking.sql`
+4. `supabase/migrations/20261121_calendar_presenter_welcome.sql`
+5. `supabase/migrations/20261121_calendar_public_list_time.sql`
+6. `supabase/migrations/20261122_screen_queue_history.sql`
 
-A migração é incremental e não apaga as tabelas nem os registros existentes. Ela acrescenta colunas, índices, estado de fila e funções transacionais. Não execute comandos DROP ou TRUNCATE.
+As migrações são incrementais e não apagam as tabelas nem os registros existentes. Não execute comandos DROP ou TRUNCATE. Para um projeto Supabase totalmente novo, use `supabase/complete-install.sql`, que inclui o esquema e as migrações acima.
 
 ## 3. Publicar no Netlify
 1. Extraia o ZIP.
