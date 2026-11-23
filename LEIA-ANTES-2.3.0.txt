@@ -1,0 +1,14 @@
+BLACK JACK KARAOKE — PATCH 2.3.0
+
+Arquivos para substituir no projeto original:
+- netlify/functions/api.mjs
+- public/admin.html
+- public/telao.html
+- package.json
+
+Também acompanha:
+- ATUALIZACAO-2.3.0.md
+
+Não execute SQL nesta atualização.
+Não apague a pasta .git, arquivos .env, nem altere variáveis da Netlify.
+Depois de copiar, faça Commit e Push pelo GitHub Desktop.
