@@ -130,7 +130,7 @@ async function queueForEvent(event) {
   const [{ data: rows, error: re }, { data: participants, error: pe }, { data: state, error: qe }] = await Promise.all([
     client.from('presentations').select('id,event_id,table_id,table_number,tab_number,p1,p2,p3,song,status,created_at,started_at,sung_at,manual_rank,manual_position,round_number,hide_on_screen').eq('event_id', event.id).in('status', ['PENDING', 'PLAYING', 'SUNG']).order('created_at'),
     client.from('participants').select('presentation_id,table_id,normalized_name,name').eq('event_id', event.id),
-    client.from('queue_state').select('last_sung_table_number,manual_mode').eq('event_id', event.id).maybeSingle()
+    client.from('queue_state').select('manual_mode').eq('event_id', event.id).maybeSingle()
   ]);
   if (re) throw re; if (pe) throw pe; if (qe) throw qe;
   const participantMap = new Map();
@@ -139,72 +139,77 @@ async function queueForEvent(event) {
     participantMap.get(p.presentation_id).push(p);
   }
 
-  // A prioridade pertence à comanda, não à mesa. Assim, trocar de mesa
-  // não zera a quantidade de músicas que a pessoa já cantou na noite.
+  // A ordem normal é cronológica e pertence à COMANDA, nunca à mesa.
+  // A primeira apresentação de uma comanda sem histórico recebe prioridade
+  // especial somente depois das três primeiras posições já preservadas.
   const sungRows = (rows || []).filter(x => x.status === 'SUNG');
   const songsByTab = new Map();
   for (const p of sungRows) {
-    if (p.tab_number) songsByTab.set(p.tab_number, (songsByTab.get(p.tab_number) || 0) + 1);
+    const key = String(p.tab_number || '').trim().toUpperCase();
+    if (key) songsByTab.set(key, (songsByTab.get(key) || 0) + 1);
   }
 
   const current = (rows || []).find(x => x.status === 'PLAYING') || null;
   const pending = (rows || []).filter(x => x.status === 'PENDING');
-  // Ajustes manuais continuam sendo exceções pontuais.
-  const manual = pending.filter(x => x.manual_position !== null && x.manual_position !== undefined || x.manual_rank !== null && x.manual_rank !== undefined)
-    .sort((a, b) => Number(a.manual_position ?? (Number(a.manual_rank) / 1000)) - Number(b.manual_position ?? (Number(b.manual_rank) / 1000)) || Number(a.manual_rank || 0) - Number(b.manual_rank || 0));
+
+  // Ajustes manuais continuam sendo exceções pontuais e são preservados.
+  const manual = pending
+    .filter(x => (x.manual_position !== null && x.manual_position !== undefined) ||
+                 (x.manual_rank !== null && x.manual_rank !== undefined))
+    .sort((a, b) =>
+      Number(a.manual_position ?? (Number(a.manual_rank) / 1000)) -
+      Number(b.manual_position ?? (Number(b.manual_rank) / 1000)) ||
+      Number(a.manual_rank || 0) - Number(b.manual_rank || 0)
+    );
   const manualIds = new Set(manual.map(x => x.id));
   const auto = pending.filter(x => !manualIds.has(x.id));
 
-  const tableGroups = new Map();
   for (const p of auto) {
-    if (!tableGroups.has(p.table_number)) tableGroups.set(p.table_number, []);
-    p._songsSung = Number(songsByTab.get(p.tab_number) || 0);
-    tableGroups.get(p.table_number).push(p);
-  }
-  for (const list of tableGroups.values()) {
-    list.sort((a, b) => a._songsSung - b._songsSung || new Date(a.created_at) - new Date(b.created_at));
+    const key = String(p.tab_number || '').trim().toUpperCase();
+    p._songsSung = key ? Number(songsByTab.get(key) || 0) : 0;
   }
 
-  const tableNumbers = [...tableGroups.keys()].sort((a, b) => a - b);
-  const cursor = state?.last_sung_table_number ?? null;
-  const rotation = cursor === null ? tableNumbers : [...tableNumbers.filter(n => n > cursor), ...tableNumbers.filter(n => n <= cursor)];
-  const roundRobinOrder = [];
-  let round = 1;
-  while (roundRobinOrder.length < auto.length) {
-    let added = false;
-    for (const tableNumber of rotation) {
-      const next = tableGroups.get(tableNumber)?.shift();
-      if (next) { next._round = round; roundRobinOrder.push(next); added = true; }
-    }
-    if (!added) break;
-    round++;
-  }
+  // Primeiro preserva a ordem de chegada de todas as comandas.
+  // A mesa não participa do cálculo, então a troca de mesa não altera a vez.
+  const arrivalOrder = auto.slice().sort((a, b) =>
+    new Date(a.created_at || 0) - new Date(b.created_at || 0) ||
+    String(a.id).localeCompare(String(b.id))
+  );
 
-  // As três primeiras posições do rodízio calculado são preservadas.
-  // A partir da quarta, primeiras músicas de comandas sem histórico passam
-  // à frente das músicas repetidas. Depois da primeira apresentação cantada,
-  // a comanda deixa de receber essa prioridade.
-  const protectedFirstThree = roundRobinOrder.slice(0, 3);
-  const remaining = roundRobinOrder.slice(3);
-  const firstSongs = remaining.filter(p => p._songsSung === 0);
-  const regular = remaining.filter(p => p._songsSung > 0);
+  const protectedFirstThree = arrivalOrder.slice(0, 3);
+  const remaining = arrivalOrder.slice(3);
+
+  // Somente a primeira música de uma comanda sem histórico ganha prioridade.
+  // Depois que a comanda canta uma vez, seus próximos pedidos seguem a fila normal.
+  const firstSongs = remaining.filter(p =>
+    Boolean(String(p.tab_number || '').trim()) && p._songsSung === 0
+  );
+  const regular = remaining.filter(p =>
+    !String(p.tab_number || '').trim() || p._songsSung > 0
+  );
   const prioritizedOrder = [...protectedFirstThree, ...firstSongs, ...regular];
 
+  // Ajustes manuais permanecem como posições pontuais, sem desligar o automático.
   const mergedOrder = prioritizedOrder.slice();
   for (const p of manual) {
-    const desired = Number(p.manual_position ?? (Number(p.manual_rank) / 1000) ?? 1);
-    const index = Math.max(0, Math.min(mergedOrder.length, (Number.isFinite(desired) ? desired : 1) - 1));
+    const rawPosition = p.manual_position ?? (Number(p.manual_rank) / 1000);
+    const desired = Number(rawPosition);
+    const index = Math.max(0, Math.min(
+      mergedOrder.length,
+      (Number.isFinite(desired) ? desired : 1) - 1
+    ));
     mergedOrder.splice(index, 0, p);
   }
 
   const ordered = mergedOrder.map((p, index) => {
-    const count = Number(songsByTab.get(p.tab_number) || 0);
+    const key = String(p.tab_number || '').trim().toUpperCase();
+    const count = key ? Number(songsByTab.get(key) || 0) : 0;
     return {
       ...p,
       position: index + 1,
-      round: manualIds.has(p.id) ? 'Manual' : (p._round || 1),
+      round: manualIds.has(p.id) ? 'Manual' : 'Comanda',
       history_count: count,
-      first_song_priority: count === 0 && index >= 3 && !manualIds.has(p.id),
+      first_song_priority: Boolean(key) && count === 0 && index >= 3 && !manualIds.has(p.id),
       participants: (participantMap.get(p.id) || []).map(m => m.name)
     };
   });
@@ -214,7 +219,7 @@ async function queueForEvent(event) {
     .slice()
     .sort((a, b) => new Date(b.sung_at || b.created_at) - new Date(a.sung_at || a.created_at))
     .map(clean);
-  return { current: clean(current), last: clean(last), queue: ordered, sung, manualMode: Boolean(state?.manual_mode), manualCount: manual.length, automaticActive: true, cursor };
+  return { current: clean(current), last: clean(last), queue: ordered, sung, manualMode: Boolean(state?.manual_mode), manualCount: manual.length, automaticActive: true };
 }
 
 // Shared response helpers used by the administrator dashboard and queue actions.
