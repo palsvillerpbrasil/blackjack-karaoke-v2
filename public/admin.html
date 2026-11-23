@@ -8,7 +8,6 @@
 .sung-history summary{cursor:pointer;padding:13px 15px;color:var(--gold2);font-weight:800;letter-spacing:.5px}
 .sung-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 14px;border-top:1px solid #303030}
 .sung-item strong{display:block}.sung-item small{display:block;color:#aaa;margin-top:4px}
-.screen-status{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .history-count{white-space:nowrap;color:var(--gold2);font-weight:800}
 @media(max-width:600px){.sung-item{grid-template-columns:1fr}.sung-item button{justify-self:start}}
 #app:fullscreen{width:100vw;height:100vh;max-width:none;overflow:auto;padding:14px 20px;background:radial-gradient(ellipse at top,#1a160e 0,#080808 55%)}
@@ -65,16 +64,12 @@ function renderQueue(x){
  queueData=x.queue||[];
  currentQueueNow=x.current||null;
  const manualCount=Number(x.manualCount||0);
- $('queueMode').textContent=`Prioridade da primeira música por comanda • ${manualCount} ajuste(s) manual(is) preservado(s). Trocar de mesa não altera o histórico.`;
+ $('queueMode').textContent=`Rodízio por comanda • primeira música com prioridade após as três primeiras posições • ${manualCount} ajuste(s) manual(is) preservado(s).`;
  $('playingNow').innerHTML=x.current?`<div class="notice"><b>TOCANDO AGORA — MESA ${x.current.table_number} • COMANDA ${esc(x.current.tab_number||'—')}</b><br>${esc(x.current.song)} • ${esc([x.current.p1,x.current.p2,x.current.p3].filter(Boolean).join(', '))}<div class="actions" style="margin-top:8px"><button class="success smallbtn" onclick="presentationAction('${x.current.id}','SUNG')">Marcar como cantada</button><button class="danger smallbtn" onclick="presentationAction('${x.current.id}','CANCEL')">Cancelar</button><button class="secondary smallbtn" onclick="editPresentation('${x.current.id}')">Editar</button></div></div>`:'<div class="notice">Nenhuma apresentação tocando agora.</div>';
- $('queueList').innerHTML=queueData.length?queueData.map(p=>`<article class="queuecard" draggable="true" data-id="${esc(p.id)}"><div class="position">${p.position}</div><div><h3>${esc(p.song)}</h3><p>Mesa ${p.table_number} • Comanda ${esc(p.tab_number||'—')} • ${esc((p.participants||[]).join(', '))}</p><p>Reserva: ${new Date(p.created_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} • Rodada: ${esc(p.round)} • Músicas já cantadas pela comanda: ${p.history_count}</p>${p.first_song_priority?'<span class="queue-priority">PRIMEIRA MÚSICA • PRIORIDADE</span>':`<span class="pill">${manualPosition(p)?'PRIORIDADE MANUAL':'RODÍZIO NORMAL'}</span>`}${p.hide_on_screen?'<span class="pill closed" style="margin-left:5px">OCULTA NO TELÃO ATÉ INICIAR</span>':''}</div><div class="queue-actions"><input class="inlinepos" type="number" min="1" max="${queueData.length}" value="${p.position}" aria-label="Posição" onchange="movePosition('${p.id}',this.value)"><button class="secondary smallbtn" onclick="movePosition('${p.id}',${p.position-1})">↑</button><button class="secondary smallbtn" onclick="movePosition('${p.id}',${p.position+1})">↓</button>${manualPosition(p)?`<button class="secondary smallbtn" onclick="unpinPosition('${p.id}')">Automático</button>`:''}<button class="success smallbtn" onclick="presentationAction('${p.id}','START')">Iniciar</button><button class="smallbtn" onclick="startPresentationWithScreens('${p.id}')">Iniciar com telões</button><button class="secondary smallbtn" onclick="editPresentation('${p.id}')">Editar</button><button class="success smallbtn" onclick="presentationAction('${p.id}','SUNG')">Cantada</button><button class="danger smallbtn" onclick="presentationAction('${p.id}','CANCEL')">Cancelar</button></div></article>`).join(''):'<p class="muted">Nenhuma apresentação aguardando.</p>';
+ $('queueList').innerHTML=queueData.length?queueData.map(p=>`<article class="queuecard" draggable="true" data-id="${esc(p.id)}"><div class="position">${p.position}</div><div><h3>${esc(p.song)}</h3><p>Mesa ${p.table_number} • Comanda ${esc(p.tab_number||'—')} • ${esc((p.participants||[]).join(', '))}</p><p>Reserva: ${new Date(p.created_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} • Rodada: ${esc(p.round)} • Músicas já cantadas pela comanda: ${p.history_count}</p>${p.first_song_priority?'<span class="queue-priority">PRIMEIRA MÚSICA • PRIORIDADE</span>':`<span class="pill">${manualPosition(p)?'PRIORIDADE MANUAL':'RODÍZIO NORMAL'}</span>`}${p.hide_on_screen?'<span class="pill closed" style="margin-left:5px">OCULTA NO TELÃO ATÉ INICIAR</span>':''}</div><div class="queue-actions"><input class="inlinepos" type="number" min="1" max="${queueData.length}" value="${p.position}" aria-label="Posição" onchange="movePosition('${p.id}',this.value)"><button class="secondary smallbtn" onclick="movePosition('${p.id}',${p.position-1})">↑</button><button class="secondary smallbtn" onclick="movePosition('${p.id}',${p.position+1})">↓</button>${manualPosition(p)?`<button class="secondary smallbtn" onclick="unpinPosition('${p.id}')">Automático</button>`:''}<button class="success smallbtn" onclick="presentationAction('${p.id}','START')">Iniciar</button><button class="secondary smallbtn" onclick="editPresentation('${p.id}')">Editar</button><button class="success smallbtn" onclick="presentationAction('${p.id}','SUNG')">Cantada</button><button class="danger smallbtn" onclick="presentationAction('${p.id}','CANCEL')">Cancelar</button></div></article>`).join(''):'<p class="muted">Nenhuma apresentação aguardando.</p>';
  const sung=x.sung||[];
  $('sungHistorySummary').textContent=`MÚSICAS JÁ CANTADAS NESTA NOITE (${sung.length})`;
- $('sungList').innerHTML=sung.length?sung.map(p=>`<div class="sung-item"><div><strong>${esc(p.song)}</strong><small>${esc([p.p1,p.p2,p.p3].filter(Boolean).join(', '))} • Mesa ${p.table_number} • Comanda ${esc(p.tab_number||'—')} • ${p.sung_at?new Date(p.sung_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'Horário não registrado'}</small></div><button class="secondary smallbtn" onclick="restorePresentation('${p.id}')">↩ Voltar para a fila</button></div>`).join(''):'<p class="muted" style="padding:12px 15px">Ainda não há músicas cantadas nesta noite.</p>';
- if(x.screenSession?.active&&!screenShareSessionId){screenShareSessionId=x.screenSession.sessionId;screenShareEventId=x.event?.id||''}
- $('screenShareStatus').classList.toggle('hidden',!screenShareSessionId);
- if(screenShareSessionId)$('screenShareText').textContent=screenShareStream?'Transmissão ativa para os telões. A faixa de música atual e próxima continuará visível.':'Existe uma transmissão ativa. Se a imagem não estiver chegando, encerre e inicie novamente.';
- wireDrag();
+ $('sungList').innerHTML=sung.length?sung.map(p=>`<div class="sung-item"><div><strong>${esc(p.song)}</strong><small>${esc([p.p1,p.p2,p.p3].filter(Boolean).join(', '))} • Mesa ${p.table_number} • Comanda ${esc(p.tab_number||'—')} • ${p.sung_at?new Date(p.sung_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'Horário não registrado'}</small></div><button class="secondary smallbtn" onclick="restorePresentation('${p.id}')">↩ Voltar para a fila</button></div>`).join(''):'<p class="muted" style="padding:12px 15px">Ainda não há músicas cantadas nesta noite.</p>'; wireDrag();
 }
 function manualPosition(p){return p.manual_position!==null&&p.manual_position!==undefined||p.manual_rank!==null&&p.manual_rank!==undefined}
 async function loadQueue(){try{renderQueue(await api('admin.queue.list'))}catch(e){message('queueMessage',e.message)}}
@@ -84,75 +79,6 @@ window.presentationAction=async(id,operation)=>{if(operation==='CANCEL'&&!confir
 window.restorePresentation=async id=>{if(!confirm('Devolver esta música à fila? Ela será posicionada depois das três primeiras, quando houver espaço.'))return;try{const x=await api('admin.presentation.restore',{id});renderQueue(x);if(x.dashboard)renderDashboard(x.dashboard)}catch(e){alert(e.message)}};
 window.editPresentation=id=>{const p=queueData.find(x=>x.id===id)||(currentQueueNow?.id===id?currentQueueNow:null);if(!p)return;showModal('EDITAR APRESENTAÇÃO',`<div class="field"><label>PARTICIPANTE 1</label><input id="editP1" value="${esc(p.p1)}"></div><div class="field"><label>PARTICIPANTE 2</label><input id="editP2" value="${esc(p.p2||'')}"></div><div class="field"><label>PARTICIPANTE 3</label><input id="editP3" value="${esc(p.p3||'')}"></div><div class="field"><label>MÚSICA</label><input id="editSong" value="${esc(p.song)}"></div><button id="saveEdit">Salvar alterações</button><div class="msg" id="editMessage"></div>`);$('saveEdit').onclick=async()=>{try{const x=await api('admin.presentation.edit',{id,p1:$('editP1').value,p2:$('editP2').value,p3:$('editP3').value,song:$('editSong').value});hideModal();renderQueue(x)}catch(e){message('editMessage',e.message)}}};
 $('refreshQueue').onclick=loadQueue;$('startNext').onclick=async()=>{try{const x=await api('admin.queue.startNext');renderQueue(x);if(x.dashboard)renderDashboard(x.dashboard)}catch(e){message('queueMessage',e.message)}};$('autoQueue').onclick=async()=>{try{const x=await api('admin.queue.auto');renderQueue(x);message('queueMessage','Rodízio automático ativo. Os ajustes manuais existentes foram preservados.')}catch(e){message('queueMessage',e.message)}};
-async function sendScreenSignal(event,payload){if(!screenShareChannel)return;await screenShareChannel.send({type:'broadcast',event,payload})}
-async function createScreenPeer(clientId){
- if(!screenShareStream||!screenShareChannel||!screenShareSessionId||screenPeers.has(clientId))return;
- const pc=new RTCPeerConnection({iceServers:screenShareClient?.__iceServers||[{urls:'stun:stun.l.google.com:19302'}]});
- screenPeers.set(clientId,pc);
- screenShareStream.getTracks().forEach(track=>pc.addTrack(track,screenShareStream));
- pc.onicecandidate=e=>{if(e.candidate)sendScreenSignal('screen:admin-ice',{sessionId:screenShareSessionId,clientId,candidate:e.candidate}).catch(()=>{})};
- pc.onconnectionstatechange=()=>{if(['failed','closed'].includes(pc.connectionState)){pc.close();screenPeers.delete(clientId)}};
- const offer=await pc.createOffer();
- await pc.setLocalDescription(offer);
- await sendScreenSignal('screen:offer',{sessionId:screenShareSessionId,clientId,offer:pc.localDescription});
-}
-async function connectAdminScreenChannel(eventId,sessionId,config){
- if(!window.supabase?.createClient)throw Error('Não foi possível carregar o serviço de transmissão. Atualize a página.');
- screenShareClient=window.supabase.createClient(config.url,config.anonKey,{auth:{persistSession:false,autoRefreshToken:false}});
- screenShareClient.__iceServers=config.iceServers||[{urls:'stun:stun.l.google.com:19302'}];
- screenShareEventId=eventId;screenShareSessionId=sessionId;
- screenShareChannel=screenShareClient.channel('blackjack-screen-'+sessionId,{config:{broadcast:{self:false}}});
- screenShareChannel
-  .on('broadcast',{event:'screen:hello'},({payload})=>{if(payload?.sessionId===screenShareSessionId&&payload.clientId)createScreenPeer(payload.clientId).catch(e=>console.error(e))})
-  .on('broadcast',{event:'screen:answer'},async({payload})=>{if(payload?.sessionId!==screenShareSessionId)return;const pc=screenPeers.get(payload.clientId);if(pc&&payload.answer)try{await pc.setRemoteDescription(payload.answer)}catch(e){console.error(e)}})
-  .on('broadcast',{event:'screen:screen-ice'},async({payload})=>{if(payload?.sessionId!==screenShareSessionId)return;const pc=screenPeers.get(payload.clientId);if(pc&&payload.candidate)try{await pc.addIceCandidate(payload.candidate)}catch(e){console.error(e)}});
- await new Promise((resolve,reject)=>{let settled=false;screenShareChannel.subscribe(status=>{if(status==='SUBSCRIBED'&&!settled){settled=true;resolve()}else if(['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(status)&&!settled){settled=true;reject(Error('Não foi possível conectar aos telões pelo serviço de transmissão.'))}})});
- await sendScreenSignal('screen:session',{sessionId:screenShareSessionId,active:true});
-}
-async function stopScreenShare(fromTrack=false){
- const sessionId=screenShareSessionId;
- if(!sessionId)return;
- try{await sendScreenSignal('screen:stop',{sessionId})}catch{}
- for(const pc of screenPeers.values())try{pc.close()}catch{}
- screenPeers.clear();
- if(screenShareStream){screenShareStream.getTracks().forEach(t=>{t.onended=null;t.stop()});screenShareStream=null}
- if(screenShareChannel){try{await screenShareChannel.unsubscribe()}catch{}screenShareChannel=null}
- screenShareClient=null;screenShareSessionId='';screenShareEventId='';
- try{await api('admin.screen.stop',{sessionId})}catch(e){console.warn(e)}
- $('screenShareStatus').classList.add('hidden');
- if(!fromTrack)message('queueMessage','Transmissão encerrada. O telão voltou ao modo normal.');
-}
-window.startPresentationWithScreens=async id=>{
- if(screenShareBusy)return;
- if(screenShareSessionId){alert('Já existe uma transmissão ativa. Encerre a transmissão atual antes de iniciar outra.');return}
- if(!navigator.mediaDevices?.getDisplayMedia){alert('Este navegador não oferece compartilhamento de tela. Use uma versão atualizada do Chrome ou Edge.');return}
- screenShareBusy=true;
- let stream=null;
- try{
-  // A permissão do navegador precisa ser solicitada diretamente após o clique.
-  stream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:15,max:30}},audio:false});
-  const config=await api('public.realtimeConfig',{},false);
-  if(!config.configured){throw Error('Para transmitir aos telões, configure SUPABASE_ANON_KEY (ou SUPABASE_PUBLISHABLE_KEY) nas variáveis da Netlify. A chave service_role nunca deve ser usada no navegador.')}
-  const session=await api('admin.screen.start');
-  screenShareStream=stream;
-  await connectAdminScreenChannel(session.eventId,session.sessionId,config);
-  const started=await api('admin.presentation.action',{id,operation:'START'});
-  renderQueue(started);
-  if(started.dashboard)renderDashboard(started.dashboard);
-  const track=stream.getVideoTracks()[0];
-  if(track)track.onended=()=>stopScreenShare(true);
-  $('screenShareStatus').classList.remove('hidden');
-  message('queueMessage','Apresentação iniciada e compartilhamento enviado aos telões.');
- }catch(e){
-  if(stream)stream.getTracks().forEach(t=>t.stop());
-  if(screenShareSessionId)await stopScreenShare(true);
-  else if(stream)screenShareStream=null;
-  alert(e.message||'Não foi possível iniciar a transmissão.');
- }finally{screenShareBusy=false}
-};
-$('stopScreenShare').onclick=()=>stopScreenShare(false);
-window.addEventListener('beforeunload',()=>{if(screenShareSessionId){try{fetch('/api/',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+authToken},body:JSON.stringify({action:'admin.screen.stop',sessionId:screenShareSessionId}),keepalive:true})}catch{}}});
-
 async function openManualSongModal(){
  try{
   if(!tables.length){const x=await api('admin.tables.list');tables=x.tables||[]}

@@ -675,31 +675,6 @@ async function handleAdmin(action, body, req) {
     }
   }
 
-  if (action === 'admin.screen.start') {
-    assertFull(admin);
-    const event = await eventForPublic();
-    if (!event) throw new Error('Não existe uma noite ativa para transmitir.');
-    const sessionId = id();
-    const expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
-    const { error } = await db().from('screen_sessions').upsert({
-      event_id: event.id, session_id: sessionId, active: true,
-      started_by: admin.display_name, updated_at: new Date().toISOString(), expires_at: expiresAt
-    }, { onConflict: 'event_id' });
-    if (error) throw error;
-    await audit(admin.display_name, 'SCREEN_SHARE_STARTED', { session_id: sessionId }, event.id);
-    return { ok: true, eventId: event.id, sessionId, expiresAt };
-  }
-  if (action === 'admin.screen.stop') {
-    assertFull(admin);
-    const event = await eventForPublic();
-    if (!event) return { ok: true, stopped: true };
-    let query = db().from('screen_sessions').update({ active: false, updated_at: new Date().toISOString() }).eq('event_id', event.id);
-    if (text(body.sessionId)) query = query.eq('session_id', text(body.sessionId));
-    const { error } = await query;
-    if (error) throw error;
-    await audit(admin.display_name, 'SCREEN_SHARE_STOPPED', { session_id: text(body.sessionId) }, event.id);
-    return { ok: true, stopped: true };
-  }
   if (action === 'admin.queue.manualAdd') {
     assertFull(admin);
     const event = await eventForPublic();
@@ -726,12 +701,8 @@ async function handleAdmin(action, body, req) {
   }
   if (action === 'admin.queue.list') {
     const event = await eventForPublic();
-    if (!event) return { ok: true, event: null, ...(await adminQueue(event)), screenSession: null };
-    const { data: session, error } = await db().from('screen_sessions').select('session_id,active,expires_at').eq('event_id', event.id).maybeSingle();
-    if (error) throw error;
-    const screenSession = session?.active && (!session.expires_at || new Date(session.expires_at).getTime() > Date.now())
-      ? { sessionId: session.session_id, active: true } : null;
-    return { ok: true, event, ...(await adminQueue(event)), screenSession };
+    if (!event) return { ok: true, event: null, ...(await adminQueue(event)) };
+    return { ok: true, event, ...(await adminQueue(event)) };
   }
   if (action === 'admin.queue.reorder') {
     const event = await eventForPublic(); if (!event) throw new Error('Não existe evento ativo.');
@@ -986,16 +957,6 @@ export default async function handler(req) {
     }
     if (action === 'public.status') return json(200, await publicStatus(body.token));
     if (action === 'public.screenStatus') return json(200, await screenStatus());
-    if (action === 'public.realtimeConfig') {
-      const anonKey = text(process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY);
-      return json(200, {
-        ok: true,
-        configured: Boolean(text(process.env.SUPABASE_URL) && anonKey),
-        url: text(process.env.SUPABASE_URL),
-        anonKey,
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-      });
-    }
     if (action === 'public.lookupTab') return json(200, await lookupTab(body.token, body.tab));
     if (action === 'public.identifyTab') return json(200, await identifyTab(body));
     if (action === 'public.register') return json(200, await registerPresentation(body));
