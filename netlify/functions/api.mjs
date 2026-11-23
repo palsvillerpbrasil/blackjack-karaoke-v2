@@ -323,22 +323,26 @@ async function registerPresentation(body) {
 }
 
 async function screenStatus() {
-  const [thanksSetting, thanksEvents] = await Promise.all([
+  const [thanksSetting, thanksEvents, latest] = await Promise.all([
     db().from('settings').select('value').eq('key', 'screen_thanks_active').maybeSingle(),
-    upcomingCalendarEvents(true, 3)
+    upcomingCalendarEvents(true, 3),
+    latestEvent()
   ]);
   if (thanksSetting.error) throw thanksSetting.error;
   const thanksActive = thanksSetting.data?.value === true;
-  const event = await eventForPublic();
-  if (!event) return { ok: true, event: null, eventId: null, capacity: 0, available: 0, current: null, last: null, next: null, queue: [], raffle: null, welcome: false, screenSession: null, thanksActive, thanksEvents };
-  const [q, calendarEvent, startedResult, screenResult] = await Promise.all([
+  // FINISHED significa que a noite foi encerrada. CLOSED apenas fecha inscrições;
+  // nesse caso o telão continua mostrando a noite em andamento.
+  const event = latest && latest.status !== 'FINISHED' ? latest : null;
+  if (!event) {
+    const upcomingEvents = await upcomingCalendarEvents(Boolean(latest && latest.status === 'FINISHED'), 3);
+    return { ok: true, event: null, eventId: null, capacity: 0, available: 0, current: null, last: null, next: null, queue: [], raffle: null, welcome: false, thanksActive, thanksEvents, showUpcoming: true, upcomingEvents };
+  }
+  const [q, calendarEvent, startedResult] = await Promise.all([
     queueForEvent(event),
     calendarEventForDate(),
-    db().from('presentations').select('id', { count: 'exact', head: true }).eq('event_id', event.id).or('started_at.not.is.null,status.eq.SUNG'),
-    db().from('screen_sessions').select('session_id,active,expires_at').eq('event_id', event.id).maybeSingle()
+    db().from('presentations').select('id', { count: 'exact', head: true }).eq('event_id', event.id).or('started_at.not.is.null,status.eq.SUNG')
   ]);
   if (startedResult.error) throw startedResult.error;
-  if (screenResult.error) throw screenResult.error;
   const { count: usedCount, error: countError } = await db()
     .from('presentations')
     .select('id', { count: 'exact', head: true })
@@ -372,11 +376,10 @@ async function screenStatus() {
   }
   const scheduledTitle = calendarEvent?.title || event.name;
   const welcome = event.status !== 'CLOSED' && !q.current && Number(startedResult.count || 0) === 0;
-  const session = screenResult.data;
-  const screenSession = session?.active && (!session.expires_at || new Date(session.expires_at).getTime() > Date.now())
-    ? { sessionId: session.session_id, active: true } : null;
   return {
     ok: true,
+    showUpcoming: false,
+    upcomingEvents: [],
     event: { id: event.id, name: scheduledTitle, status: event.status },
     eventId: event.id,
     welcome,
@@ -388,7 +391,6 @@ async function screenStatus() {
     last: publicPresentation(q.sung.find(x => !x.hide_on_screen) || (q.last?.hide_on_screen ? null : q.last)),
     next: publicPresentation(q.queue.find(x => !x.hide_on_screen)),
     raffle: rafflePayload,
-    screenSession,
     thanksActive,
     thanksEvents
   };

@@ -30,91 +30,34 @@
 @keyframes thanksGlow{from{opacity:.45;transform:scale(1)}to{opacity:1;transform:scale(1.04)}}
 @keyframes thanksDivider{0%,100%{transform:scaleX(.72);opacity:.55}50%{transform:scaleX(1);opacity:1}}
 @keyframes thanksShimmer{0%,70%,100%{transform:translateX(-110%)}85%{transform:translateX(110%)}}
-body.thanks-active .wrap,body.thanks-active .welcome-screen,body.thanks-active .raffle,body.thanks-active .screen-share-stage{display:none!important}
+body.thanks-active .wrap,body.thanks-active .welcome-screen,body.thanks-active .raffle{display:none!important}
 body.thanks-active .thanks-screen{display:flex}
-@media(max-width:760px){.thanks-screen{overflow:auto;align-items:flex-start;padding:5vh 5vw}.thanks-content{margin:auto 0}.thanks-title{font-size:clamp(36px,8vw,58px)}.thanks-events{grid-template-columns:1fr;max-width:520px}.thanks-event{padding:14px}.thanks-date-day{font-size:42px}.thanks-footer{margin-top:2vh}}
+.upcoming-screen{position:fixed;inset:0;z-index:19;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:4vh 4vw;background:radial-gradient(ellipse at 50% 40%,#33230e 0,#100d08 48%,#050505 100%)}
+.upcoming-screen.hidden{display:none}
+.upcoming-screen:before,.upcoming-screen:after{content:"";position:absolute;pointer-events:none;border-radius:50%;filter:blur(2px)}
+.upcoming-screen:before{width:75vw;height:75vw;max-height:100vh;max-width:100vh;border:1px solid #c8922a30;box-shadow:0 0 100px #c8922a12,inset 0 0 100px #c8922a0c;animation:thanksOrbit 24s linear infinite}
+.upcoming-screen:after{inset:0;background:radial-gradient(circle at 15% 20%,#f0c76d16 0 1px,transparent 2px),radial-gradient(circle at 80% 24%,#f0c76d20 0 1px,transparent 2px),radial-gradient(circle at 22% 78%,#f0c76d18 0 1px,transparent 2px),radial-gradient(circle at 86% 82%,#f0c76d18 0 1px,transparent 2px);animation:thanksGlow 5s ease-in-out infinite alternate}
+body.upcoming-active .wrap,body.upcoming-active .welcome-screen,body.upcoming-active .raffle,body.upcoming-active #thanksScreen{display:none!important}
+body.upcoming-active .upcoming-screen{display:flex}
+body.thanks-active #upcomingScreen{display:none!important}
+@media(max-width:760px){.thanks-screen,.upcoming-screen{overflow:auto;align-items:flex-start;padding:5vh 5vw}.thanks-content{margin:auto 0}.thanks-title{font-size:clamp(36px,8vw,58px)}.thanks-events{grid-template-columns:1fr;max-width:520px}.thanks-event{padding:14px}.thanks-date-day{font-size:42px}.thanks-footer{margin-top:2vh}}
 @media(prefers-reduced-motion:reduce){.thanks-screen:before,.thanks-screen:after,.thanks-divider,.thanks-event:before{animation:none}.thanks-kicker,.thanks-title,.thanks-copy,.thanks-events-label,.thanks-event,.thanks-footer{opacity:1;animation:none}}
 </style></head><body><main class="wrap"><header class="brand"><img src="/assets/logo-original.png" alt="Logo original BLACK JACK" onerror="this.style.display='none'"><div class="karaoke">KARAOKÊ</div><div class="blackjack">BLACK JACK</div><div class="sub">Sua vez de brilhar!</div></header><div class="event" id="eventName">NOITE DE KARAOKÊ</div><section class="availability" aria-live="polite" aria-atomic="true"><div class="availability-number" id="availableCount">—</div><div><div class="availability-title">APRESENTAÇÕES DISPONÍVEIS</div><div class="availability-detail" id="availabilityDetail">AGUARDANDO DADOS DA NOITE</div></div></section><section class="board"><article class="slot"><div class="label">ÚLTIMA CANTADA</div><div class="song" id="lastSong">—</div><div class="people" id="lastPeople"></div><div class="table" id="lastTable"></div></article><article class="slot current"><div class="label">TOCANDO AGORA</div><div class="song" id="currentSong">—</div><div class="people" id="currentPeople"></div><div class="table" id="currentTable"></div></article><article class="slot"><div class="label">PRÓXIMA</div><div class="song" id="nextSong">—</div><div class="people" id="nextPeople"></div><div class="table" id="nextTable"></div></article></section><div class="footer">BLACK JACK • KARAOKÊ</div></main>
-<section class="screen-share-stage" id="screenShareStage" aria-label="Tela compartilhada pelo administrador"><video class="screen-share-video" id="screenShareVideo" autoplay playsinline></video><div class="screen-share-ticker"><span id="screenShareTicker">BLACK JACK • TRANSMISSÃO PARA OS TELÕES</span></div></section>
+
 <section class="welcome-screen hidden" id="welcomeScreen" aria-label="Sejam todos bem-vindos ao Karaokê BLACK JACK"><img class="welcome-art" src="/assets/welcome-karaoke-blackjack.png" alt="Sejam todos bem-vindos ao Karaokê BLACK JACK. A estrela desta noite é você! Prepare a sua voz. O palco é seu."></section>
 <section class="thanks-screen hidden" id="thanksScreen" aria-live="polite"><div class="thanks-content"><div class="thanks-kicker">BLACK JACK • KARAOKÊ</div><h1 class="thanks-title">Obrigado por fazer parte de mais um karaokê.</h1><p class="thanks-copy">Foi uma alegria ter você com a gente. Já estamos preparando novas noites para cantar, celebrar e criar mais momentos especiais!</p><div class="thanks-divider"></div><div class="thanks-events-label">PRÓXIMAS NOITES</div><div class="thanks-events" id="thanksEvents"></div><div class="thanks-empty hidden" id="thanksEmpty">Em breve anunciaremos as próximas datas. Esperamos você!</div><div class="thanks-footer">Até a próxima. A estrela continua sendo você!</div></div></section>
+<section class="upcoming-screen hidden" id="upcomingScreen" aria-live="polite"><div class="thanks-content"><div class="thanks-kicker">BLACK JACK • KARAOKÊ</div><h1 class="thanks-title">OS PRÓXIMOS KARAOKÊS</h1><p class="thanks-copy">A próxima noite está chegando. Confira a programação e prepare sua voz para voltar ao palco!</p><div class="thanks-divider"></div><div class="thanks-events-label">AGENDA BLACK JACK</div><div class="thanks-events" id="upcomingEvents"></div><div class="thanks-empty hidden" id="upcomingEmpty">Em breve anunciaremos novas datas. Esperamos você!</div><div class="thanks-footer">A próxima noite pode ser a sua próxima grande apresentação!</div></div></section>
 <section class="raffle hidden" id="raffle"><div class="raffleTitle">HORA DO SORTEIO!</div><div class="raffleSubtitle">Boa sorte! Os nomes estão sendo escolhidos…</div><div class="raffleContent"><div class="winnerList" id="winnerList"></div><div class="spinBox"><div class="spinLabel">SORTEANDO PARTICIPANTE</div><div class="spinName" id="spinName">BOA SORTE!</div><div class="spinSong" id="spinSong">Aguarde o resultado</div></div></div></section>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-const $=id=>document.getElementById(id);let lastRaffleId=null;let spinTimer=null;let cachedCandidates=[];let currentRaffle=null;let screenClient=null;let screenChannel=null;let screenPeer=null;let screenEventId='';let activeScreenSession='';let screenClientId=crypto.randomUUID();let realtimeConfig=null;let lastScreenHello=0;let screenConnecting=false;
+const $=id=>document.getElementById(id);let lastRaffleId=null;let spinTimer=null;let cachedCandidates=[];let currentRaffle=null;
 async function api(){const r=await fetch('/api/',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'public.screenStatus'})});const j=await r.json();if(!r.ok||j.ok===false)throw Error(j.error||'Falha ao atualizar telão');return j}
 function showSlot(prefix,p){$(prefix+'Song').textContent=p?.song||'—';$(prefix+'People').textContent=p?[p.p1,p.p2,p.p3].filter(Boolean).join(' • '):'';$(prefix+'Table').textContent=p?`MESA ${p.table_number}`:''}
 function startSpin(candidates){cachedCandidates=(candidates||[]).filter(x=>x.name);if(spinTimer)clearInterval(spinTimer);spinTimer=setInterval(()=>{if(!cachedCandidates.length)return;const p=cachedCandidates[Math.floor(Math.random()*cachedCandidates.length)];$('spinName').textContent=p.name;$('spinSong').textContent=`${p.song||''} • MESA ${p.table_number||''}`},95)}
 function showWinners(winners){if(spinTimer){clearInterval(spinTimer);spinTimer=null}$('winnerList').innerHTML=(winners||[]).map(w=>`<div class="winnerCard"><div class="rank">${w.position}º SORTEADO</div><div class="name">${escapeHtml(w.participant_name)}</div><div class="song">${escapeHtml(w.song)}</div><div class="table">MESA ${w.table_number}</div></div>`).join('');if(winners?.length){$('spinName').textContent='PARABÉNS!';$('spinSong').textContent='Confira os participantes sorteados';}}
 function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function renderThanksEvents(events){const rows=(events||[]).slice(0,3);$('thanksEvents').innerHTML=rows.map((event,index)=>{const date=new Date(event.event_date+'T12:00:00');const weekday=date.toLocaleDateString('pt-BR',{weekday:'long'});const day=date.toLocaleDateString('pt-BR',{day:'2-digit'});const month=date.toLocaleDateString('pt-BR',{month:'long'});const time=(event.start_time||'19:00').slice(0,5);const [hour,minute]=time.split(':');const timeLabel=minute==='00'?hour+'h':hour+'h'+minute;return `<article class="thanks-event" style="animation-delay:${.75+index*.2}s"><div class="thanks-date-week">${escapeHtml(weekday)}</div><div class="thanks-date-day">${escapeHtml(day)}</div><div class="thanks-date-month">${escapeHtml(month)}</div><div class="thanks-event-title">${escapeHtml(event.title||'Karaokê')}</div><div class="thanks-event-meta">Às ${escapeHtml(timeLabel)}${event.presenter_name?`<br>Apresentador: ${escapeHtml(event.presenter_name)}`:''}</div></article>`}).join('');$('thanksEmpty').classList.toggle('hidden',rows.length>0)}
-async function screenApi(action,data={}){const r=await fetch('/api/',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,...data})});const j=await r.json();if(!r.ok||j.ok===false)throw Error(j.error||'Falha na transmissão');return j}
-async function screenSignal(event,payload){if(screenChannel)await screenChannel.send({type:'broadcast',event,payload})}
-async function stopScreenReceiver(){
- activeScreenSession='';
- if(screenPeer){try{screenPeer.close()}catch{}screenPeer=null}
- $('screenShareVideo').srcObject=null;
- document.body.classList.remove('screen-sharing');
- if(screenChannel){try{await screenChannel.unsubscribe()}catch{}screenChannel=null}
- screenClient=null;screenEventId='';
-}
-async function ensureScreenReceiver(eventId,sessionId){
- if(!window.supabase?.createClient||screenConnecting)return;
- screenConnecting=true;
- try{
- if((screenEventId&&screenEventId!==eventId)||(activeScreenSession&&activeScreenSession!==sessionId))await stopScreenReceiver();
- if(!activeScreenSession){
-  activeScreenSession=sessionId;
-  $('screenShareVideo').srcObject=null;
- }
- if(!screenChannel){
-  realtimeConfig=realtimeConfig||await screenApi('public.realtimeConfig');
-  if(!realtimeConfig.configured)return;
-  screenClient=window.supabase.createClient(realtimeConfig.url,realtimeConfig.anonKey,{auth:{persistSession:false,autoRefreshToken:false}});
-  screenEventId=eventId;
-  screenChannel=screenClient.channel('blackjack-screen-'+sessionId,{config:{broadcast:{self:false}}});
-  screenChannel
-   .on('broadcast',{event:'screen:offer'},async({payload})=>{
-    if(payload?.sessionId!==activeScreenSession||payload.clientId!==screenClientId||!payload.offer)return;
-    try{
-     if(screenPeer){try{screenPeer.close()}catch{}}
-     screenPeer=new RTCPeerConnection({iceServers:realtimeConfig.iceServers||[{urls:'stun:stun.l.google.com:19302'}]});
-     screenPeer.ontrack=e=>{const video=$('screenShareVideo');video.srcObject=e.streams[0];video.play().catch(()=>{});document.body.classList.add('screen-sharing')};
-     screenPeer.onicecandidate=e=>{if(e.candidate)screenSignal('screen:screen-ice',{sessionId:activeScreenSession,clientId:screenClientId,candidate:e.candidate}).catch(()=>{})};
-     screenPeer.onconnectionstatechange=()=>{if(['failed','closed'].includes(screenPeer?.connectionState)){document.body.classList.remove('screen-sharing');screenPeer=null}};
-     await screenPeer.setRemoteDescription(payload.offer);
-     const answer=await screenPeer.createAnswer();
-     await screenPeer.setLocalDescription(answer);
-     await screenSignal('screen:answer',{sessionId:activeScreenSession,clientId:screenClientId,answer:screenPeer.localDescription});
-    }catch(e){console.error('Falha ao receber transmissão',e)}
-   })
-   .on('broadcast',{event:'screen:admin-ice'},async({payload})=>{
-    if(payload?.sessionId===activeScreenSession&&payload.clientId===screenClientId&&screenPeer&&payload.candidate)try{await screenPeer.addIceCandidate(payload.candidate)}catch(e){console.error(e)}
-   })
-   .on('broadcast',{event:'screen:session'},({payload})=>{
-    if(payload?.active&&payload.sessionId===activeScreenSession)sendScreenHello().catch(()=>{});
-   })
-   .on('broadcast',{event:'screen:stop'},({payload})=>{
-    if(payload?.sessionId===activeScreenSession)stopScreenReceiver();
-   });
-  await new Promise((resolve,reject)=>{let settled=false;screenChannel.subscribe(status=>{if(status==='SUBSCRIBED'&&!settled){settled=true;resolve()}else if(['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(status)&&!settled){settled=true;reject(Error('Falha ao conectar ao canal dos telões'))}})});
-  await sendScreenHello();
- }else if(!screenPeer&&Date.now()-lastScreenHello>6000){
-  await sendScreenHello();
- }
- }finally{screenConnecting=false}
-}
-async function sendScreenHello(){
- if(!screenChannel||!activeScreenSession)return;
- lastScreenHello=Date.now();
- await screenSignal('screen:hello',{sessionId:activeScreenSession,clientId:screenClientId});
-}
-async function tick(){try{const s=await api();const thanksActive=Boolean(s.thanksActive);$('thanksScreen').classList.toggle('hidden',!thanksActive);document.body.classList.toggle('thanks-active',thanksActive);if(thanksActive)renderThanksEvents(s.thanksEvents||[]);$('eventName').textContent=s.event?.name||'NOITE DE KARAOKÊ';$('welcomeScreen').classList.toggle('hidden',!s.welcome);const capacity=Number(s.capacity||0);const available=Number(s.available||0);$('availableCount').textContent=String(Math.max(0,available));$('availabilityDetail').textContent=capacity>0?`DE ${capacity} NA NOITE`:'AGUARDANDO ABERTURA DA NOITE';showSlot('last',s.last);showSlot('current',s.current);showSlot('next',s.next);
-const currentLabel=s.current?.song||'AGUARDANDO PRÓXIMA MÚSICA';
-const nextLabel=s.next?.song||'NENHUMA NA FILA';
-$('screenShareTicker').textContent=`TOCANDO AGORA: ${currentLabel}   •   PRÓXIMA MÚSICA: ${nextLabel}   •   BLACK JACK KARAOKÊ`;
-if(s.screenSession?.active){
- try{await ensureScreenReceiver(s.eventId,s.screenSession.sessionId);if(screenChannel&&Date.now()-lastScreenHello>6000)await sendScreenHello()}catch(e){console.error(e)}
-}else if(activeScreenSession){await stopScreenReceiver()}
+function renderEventCards(events,containerId,emptyId){const rows=(events||[]).slice(0,3);$(containerId).innerHTML=rows.map((event,index)=>{const date=new Date(event.event_date+'T12:00:00');const weekday=date.toLocaleDateString('pt-BR',{weekday:'long'});const day=date.toLocaleDateString('pt-BR',{day:'2-digit'});const month=date.toLocaleDateString('pt-BR',{month:'long'});const time=(event.start_time||'19:00').slice(0,5);const [hour,minute]=time.split(':');const timeLabel=minute==='00'?hour+'h':hour+'h'+minute;return `<article class="thanks-event" style="animation-delay:${.75+index*.2}s"><div class="thanks-date-week">${escapeHtml(weekday)}</div><div class="thanks-date-day">${escapeHtml(day)}</div><div class="thanks-date-month">${escapeHtml(month)}</div><div class="thanks-event-title">${escapeHtml(event.title||'Karaokê')}</div><div class="thanks-event-meta">Às ${escapeHtml(timeLabel)}${event.presenter_name?`<br>Apresentador: ${escapeHtml(event.presenter_name)}`:''}</div></article>`}).join('');$(emptyId).classList.toggle('hidden',rows.length>0)}
+function renderThanksEvents(events){renderEventCards(events,'thanksEvents','thanksEmpty')}
+function renderUpcomingEvents(events){renderEventCards(events,'upcomingEvents','upcomingEmpty')}
+async function tick(){try{const s=await api();const thanksActive=Boolean(s.thanksActive);const upcomingActive=!thanksActive&&Boolean(s.showUpcoming);$('thanksScreen').classList.toggle('hidden',!thanksActive);document.body.classList.toggle('thanks-active',thanksActive);if(thanksActive)renderThanksEvents(s.thanksEvents||[]);$('upcomingScreen').classList.toggle('hidden',!upcomingActive);document.body.classList.toggle('upcoming-active',upcomingActive);if(upcomingActive)renderUpcomingEvents(s.upcomingEvents||[]);$('eventName').textContent=s.event?.name||'NOITE DE KARAOKÊ';$('welcomeScreen').classList.toggle('hidden',!s.welcome);const capacity=Number(s.capacity||0);const available=Number(s.available||0);$('availableCount').textContent=String(Math.max(0,available));$('availabilityDetail').textContent=capacity>0?`DE ${capacity} NA NOITE`:'AGUARDANDO ABERTURA DA NOITE';showSlot('last',s.last);showSlot('current',s.current);showSlot('next',s.next);
 if(s.raffle){$('raffle').classList.remove('hidden');if(lastRaffleId!==s.raffle.id){lastRaffleId=s.raffle.id;$('winnerList').innerHTML='';$('spinName').textContent='BOA SORTE!';startSpin(s.raffle.spinCandidates||[])}if(s.raffle.revealed){showWinners(s.raffle.winners||[])}}else{$('raffle').classList.add('hidden');if(spinTimer){clearInterval(spinTimer);spinTimer=null}lastRaffleId=null}}catch(e){$('eventName').textContent='BLACK JACK KARAOKÊ'}}tick();setInterval(()=>{if(!document.hidden)tick()},2000);
 </script></body></html>
