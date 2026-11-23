@@ -814,6 +814,39 @@ async function handleAdmin(action, body, req) {
       ? await db().from('participants').select('id,event_id,presentation_id,name,normalized_name,external_registered_at,external_registered_by,created_at').in('presentation_id', ids).order('created_at', { ascending: true })
       : { data: [], error: null };
     if (peopleError) throw peopleError;
+
+    let tabSummaries = [];
+    if (eventId) {
+      const { data: registeredTabs, error: registeredTabsError } = await db()
+        .from('event_tabs')
+        .select('tab_number,participant_name')
+        .eq('event_id', eventId);
+      if (registeredTabsError) throw registeredTabsError;
+
+      const registeredNames = new Map((registeredTabs || []).map(item => [
+        String(item.tab_number || '').trim().toUpperCase(),
+        item.participant_name
+      ]));
+      const summaryMap = new Map();
+      for (const presentation of presentations || []) {
+        const tab = String(presentation.tab_number || '').trim().toUpperCase();
+        if (!tab) continue;
+        const existing = summaryMap.get(tab) || {
+          tabNumber: tab,
+          name: registeredNames.get(tab) || presentation.p1 || 'Participante',
+          totalSongs: 0
+        };
+        existing.totalSongs += 1;
+        if (!existing.name || existing.name === 'Participante') {
+          existing.name = registeredNames.get(tab) || presentation.p1 || 'Participante';
+        }
+        summaryMap.set(tab, existing);
+      }
+      tabSummaries = [...summaryMap.values()]
+        .filter(item => item.totalSongs > 0)
+        .sort((a, b) => a.tabNumber.localeCompare(b.tabNumber, 'pt-BR', { numeric: true }));
+    }
+
     const byPresentation = new Map();
     for (const person of people || []) {
       if (!byPresentation.has(person.presentation_id)) byPresentation.set(person.presentation_id, []);
@@ -850,7 +883,7 @@ async function handleAdmin(action, body, req) {
       row.song_number = next;
     }
     rows.sort((a, b) => new Date(b.sung_at || 0) - new Date(a.sung_at || 0));
-    return { ok: true, presentations: rows, tabSummary };
+    return { ok: true, presentations: rows, tabSummary, tabSummaries };
   }
   if (action === 'admin.history.mark') {
     const participantId = text(body.participantId);
