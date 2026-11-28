@@ -405,11 +405,82 @@ async function registerPresentation(body) {
   return data;
 }
 
+async function getScreenAwardsState() {
+  const { data, error } = await db().from('settings').select('value').eq('key', 'screen_awards_state').maybeSingle();
+  if (error) throw error;
+  const raw = data?.value;
+  let value = raw;
+  if (typeof raw === 'string') {
+    try { value = JSON.parse(raw); } catch { value = null; }
+  }
+  if (!value || typeof value !== 'object') {
+    return { active: false, phase: 'CATEGORY', category: '', winner: '', index: 0, item_id: '', sequence: 0, updated_at: null };
+  }
+  return {
+    active: value.active === true,
+    phase: String(value.phase || 'CATEGORY').toUpperCase() === 'WINNER' ? 'WINNER' : 'CATEGORY',
+    category: text(value.category).slice(0, 120),
+    winner: text(value.winner).slice(0, 120),
+    index: Math.max(0, Number(value.index || 0)),
+    item_id: text(value.item_id).slice(0, 80),
+    sequence: Number(value.sequence || 0),
+    updated_at: value.updated_at || null
+  };
+}
+async function saveScreenAwardsState(nextState) {
+  const payload = {
+    active: nextState.active === true,
+    phase: String(nextState.phase || 'CATEGORY').toUpperCase() === 'WINNER' ? 'WINNER' : 'CATEGORY',
+    category: text(nextState.category).slice(0, 120),
+    winner: text(nextState.winner).slice(0, 120),
+    index: Math.max(0, Number(nextState.index || 0)),
+    item_id: text(nextState.item_id).slice(0, 80),
+    sequence: Number(nextState.sequence || Date.now()),
+    updated_at: nextState.updated_at || new Date().toISOString()
+  };
+  const { error } = await db().from('settings').upsert({ key: 'screen_awards_state', value: payload }, { onConflict: 'key' });
+  if (error) throw error;
+  return payload;
+}
+
+async function getScreenAwardsList() {
+  const { data, error } = await db().from('settings').select('value').eq('key', 'screen_awards_list').maybeSingle();
+  if (error) throw error;
+  let items = data?.value;
+  if (typeof items === 'string') {
+    try { items = JSON.parse(items); } catch { items = []; }
+  }
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, 50).map((item, index) => ({
+    id: text(item?.id).slice(0, 80) || `award-${index + 1}`,
+    category: text(item?.category).slice(0, 120),
+    winner: text(item?.winner).slice(0, 120)
+  })).filter(item => item.category && item.winner);
+}
+async function saveScreenAwardsList(items) {
+  if (!Array.isArray(items)) throw new Error('A lista de premiações está inválida.');
+  if (items.length > 50) throw new Error('Você pode cadastrar até 50 categorias por premiação.');
+  const seen = new Set();
+  const clean = items.map((item, index) => {
+    const id = text(item?.id).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80) || `award-${Date.now()}-${index}`;
+    const category = text(item?.category).slice(0, 120);
+    const winner = text(item?.winner).slice(0, 120);
+    if (!category || !winner) throw new Error(`Preencha a categoria e o vencedor do item ${index + 1}.`);
+    if (seen.has(id)) throw new Error('Há itens com identificadores repetidos na lista.');
+    seen.add(id);
+    return { id, category, winner };
+  });
+  const { error } = await db().from('settings').upsert({ key: 'screen_awards_list', value: clean }, { onConflict: 'key' });
+  if (error) throw error;
+  return clean;
+}
+
 async function screenStatus() {
-  const [thanksSetting, thanksEvents, latest] = await Promise.all([
+  const [thanksSetting, thanksEvents, latest, awardsState] = await Promise.all([
     db().from('settings').select('value').eq('key', 'screen_thanks_active').maybeSingle(),
     upcomingCalendarEvents(true, 3),
-    latestEvent()
+    latestEvent(),
+    getScreenAwardsState()
   ]);
   if (thanksSetting.error) throw thanksSetting.error;
   const thanksActive = thanksSetting.data?.value === true;
@@ -418,7 +489,7 @@ async function screenStatus() {
   const event = latest && latest.status !== 'FINISHED' ? latest : null;
   if (!event) {
     const upcomingEvents = await upcomingCalendarEvents(Boolean(latest && latest.status === 'FINISHED'), 3);
-    return { ok: true, event: null, eventId: null, capacity: 0, available: 0, current: null, last: null, next: null, queue: [], raffle: null, welcome: false, thanksActive, thanksEvents, showUpcoming: true, upcomingEvents };
+    return { ok: true, event: null, eventId: null, capacity: 0, available: 0, current: null, last: null, next: null, queue: [], raffle: null, awards: awardsState, welcome: false, thanksActive, thanksEvents, showUpcoming: true, upcomingEvents };
   }
   const [q, calendarEvent, startedResult] = await Promise.all([
     queueForEvent(event),
@@ -474,6 +545,7 @@ async function screenStatus() {
     last: publicPresentation(q.sung.find(x => !x.hide_on_screen) || (q.last?.hide_on_screen ? null : q.last)),
     next: publicPresentation(q.queue.find(x => !x.hide_on_screen)),
     raffle: rafflePayload,
+    awards: awardsState,
     thanksActive,
     thanksEvents
   };
@@ -613,8 +685,78 @@ async function handleAdmin(action, body, req) {
     const active = body.active;
     const { error } = await db().from('settings').upsert({ key: 'screen_thanks_active', value: active }, { onConflict: 'key' });
     if (error) throw error;
+    if (active) await saveScreenAwardsState({ active: false, phase: 'CATEGORY' });
     await audit(admin.display_name, active ? 'SCREEN_THANKS_SHOWN' : 'SCREEN_THANKS_HIDDEN');
     return { ok: true, active };
+  }
+  if (action === 'admin.screen.awards.get') {
+    assertFull(admin);
+    const [awards, items] = await Promise.all([getScreenAwardsState(), getScreenAwardsList()]);
+    return { ok: true, awards, items };
+  }
+  if (action === 'admin.screen.awards.saveList') {
+    assertFull(admin);
+    const current = await getScreenAwardsState();
+    if (current.active) throw new Error('Encerre a apresentação antes de editar a lista de categorias.');
+    const items = await saveScreenAwardsList(body.items);
+    await audit(admin.display_name, 'SCREEN_AWARDS_LIST_SAVED', { count: items.length });
+    return { ok: true, items, awards: current };
+  }
+  if (action === 'admin.screen.awards.start') {
+    assertFull(admin);
+    const items = await getScreenAwardsList();
+    if (!items.length) throw new Error('Cadastre pelo menos uma categoria e um vencedor antes de iniciar.');
+    await db().from('settings').upsert({ key: 'screen_thanks_active', value: false }, { onConflict: 'key' });
+    const first = items[0];
+    const awards = await saveScreenAwardsState({ active: true, phase: 'CATEGORY', index: 0, item_id: first.id, category: first.category, winner: first.winner, sequence: Date.now() });
+    await audit(admin.display_name, 'SCREEN_AWARDS_STARTED', { count: items.length });
+    return { ok: true, awards, items };
+  }
+  if (action === 'admin.screen.awards.show') {
+    assertFull(admin);
+    const category = text(body.category).slice(0, 120);
+    const winner = text(body.winner).slice(0, 120);
+    if (!category) throw new Error('Informe a categoria da premiação.');
+    await db().from('settings').upsert({ key: 'screen_thanks_active', value: false }, { onConflict: 'key' });
+    const awards = await saveScreenAwardsState({ active: true, phase: 'CATEGORY', index: 0, category, winner, sequence: Date.now() });
+    await audit(admin.display_name, 'SCREEN_AWARDS_CATEGORY_SHOWN', { category });
+    return { ok: true, awards };
+  }
+  if (action === 'admin.screen.awards.reveal') {
+    assertFull(admin);
+    const current = await getScreenAwardsState();
+    if (!current.active) throw new Error('Inicie a premiação antes de revelar o vencedor.');
+    if (current.phase === 'WINNER') throw new Error('O vencedor desta categoria já foi revelado. Avance para a próxima categoria.');
+    const items = await getScreenAwardsList();
+    const item = items[current.index];
+    if (!item) throw new Error('A categoria atual não foi encontrada na lista.');
+    const awards = await saveScreenAwardsState({ ...current, active: true, phase: 'WINNER', item_id: item.id, category: item.category, winner: item.winner, sequence: Date.now() });
+    await audit(admin.display_name, 'SCREEN_AWARDS_WINNER_REVEALED', { category: item.category, winner: item.winner });
+    return { ok: true, awards };
+  }
+  if (action === 'admin.screen.awards.next') {
+    assertFull(admin);
+    const current = await getScreenAwardsState();
+    if (!current.active) throw new Error('A premiação não está em andamento.');
+    if (current.phase !== 'WINNER') throw new Error('Revele o vencedor da categoria atual antes de avançar.');
+    const items = await getScreenAwardsList();
+    const nextIndex = current.index + 1;
+    if (nextIndex >= items.length) {
+      const awards = await saveScreenAwardsState({ active: false, phase: 'CATEGORY', category: '', winner: '', index: 0, item_id: '', sequence: Date.now() });
+      await audit(admin.display_name, 'SCREEN_AWARDS_FINISHED', { count: items.length });
+      return { ok: true, awards, finished: true };
+    }
+    const next = items[nextIndex];
+    const awards = await saveScreenAwardsState({ active: true, phase: 'CATEGORY', index: nextIndex, item_id: next.id, category: next.category, winner: next.winner, sequence: Date.now() });
+    await audit(admin.display_name, 'SCREEN_AWARDS_NEXT_CATEGORY', { index: nextIndex + 1, category: next.category });
+    return { ok: true, awards, finished: false };
+  }
+  if (action === 'admin.screen.awards.hide') {
+    assertFull(admin);
+    const current = await getScreenAwardsState();
+    const awards = await saveScreenAwardsState({ ...current, active: false, phase: 'CATEGORY', sequence: Date.now() });
+    await audit(admin.display_name, 'SCREEN_AWARDS_HIDDEN', { category: current.category, winner: current.winner });
+    return { ok: true, awards };
   }
   if (action.startsWith('admin.calendar.')) {
     assertFull(admin);
