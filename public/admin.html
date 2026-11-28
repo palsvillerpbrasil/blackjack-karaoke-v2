@@ -19,12 +19,18 @@
 .history-tab-result{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:13px 15px;border:1px solid #8b672b;border-radius:10px;background:#211a0d}
 .history-tab-result strong{font:24px Anton;color:var(--gold2)}
 .history-tab-number{font-weight:800;color:#fff}
-.history-tab-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:9px;margin-top:12px}
-.history-tab-card{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0;padding:12px;background:#191919;color:#fff;border:1px solid #4a391e;border-radius:11px;text-align:left}
-.history-tab-card:hover,.history-tab-card.active{background:#2b2110;border-color:var(--gold2)}
+.history-tab-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:9px;margin-top:12px}
+.history-tab-card{display:flex;flex-direction:column;align-items:stretch;gap:8px;min-width:0;padding:12px;background:#191919;color:#fff;border:1px solid #4a391e;border-radius:11px;text-align:left}
+.history-tab-card.active{background:#2b2110;border-color:var(--gold2)}
+.history-tab-select{display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.history-tab-select:hover strong{color:#fff}
 .history-tab-card strong{font:18px Anton;color:var(--gold2)}
 .history-tab-card span{font-size:12px;font-weight:700;overflow-wrap:anywhere}
 .history-tab-card small{font-size:10px;color:#bbb}
+.history-tab-state{font-size:10px;font-weight:900;letter-spacing:.7px;color:#9be0b5}
+.history-tab-state.partial{color:#f0c76d}
+.history-tab-mark{width:100%;min-height:32px;padding:7px 9px;font-size:11px;border-radius:8px}
+.history-tab-mark.done{background:#1e6247;color:#fff;border-color:#2b8b63}
 </style></head><body><main class="shell">
 <header class="brand"><img src="/assets/logo-original.png" alt="Logo original BLACK JACK" onerror="this.style.display='none'"><div class="karaoke">KARAOKÊ</div><div class="blackjack">BLACK JACK</div><div class="sub">PAINEL ADMINISTRATIVO</div></header>
 <section id="login" class="login"><h2 id="loginTitle">ACESSO DA EQUIPE</h2><div id="bootstrapBox" class="hidden"><div class="notice">Primeiro acesso: configure o administrador principal. A chave inicial é definida nas variáveis de ambiente da Netlify.</div><div class="field"><label>CHAVE INICIAL DE CONFIGURAÇÃO</label><input id="setupKey" type="password" autocomplete="off"></div><div class="field"><label>CRIE SUA SENHA (MÍNIMO 10 CARACTERES)</label><input id="setupPassword" type="password" autocomplete="new-password"></div><button id="setupButton">CRIAR ADMINISTRADOR PRINCIPAL</button></div><div id="loginBox"><div class="field"><label>SENHA</label><input id="loginPassword" type="password" autocomplete="current-password" placeholder="Digite somente sua senha"></div><button id="loginButton" style="width:100%">ENTRAR</button></div><div class="msg" id="loginMessage"></div></section>
@@ -70,9 +76,9 @@ function renderQueue(x){
  queueData=x.queue||[];
  currentQueueNow=x.current||null;
  const manualCount=Number(x.manualCount||0);
- $('queueMode').textContent=`Rodízio por comanda • primeira música com prioridade após as três primeiras posições • ${manualCount} ajuste(s) manual(is) preservado(s).`;
+ $('queueMode').textContent=`Rodízio inteligente por comanda e mesa • prioridade para quem cantou menos • espera acima de 45 min ganha prioridade (meta: até 50 min) • ${manualCount} ajuste(s) manual(is) preservado(s).`;
  $('playingNow').innerHTML=x.current?`<div class="notice"><b>TOCANDO AGORA — MESA ${x.current.table_number} • COMANDA ${esc(x.current.tab_number||'—')}</b><br>${esc(x.current.song)} • ${esc([x.current.p1,x.current.p2,x.current.p3].filter(Boolean).join(', '))}<div class="actions" style="margin-top:8px"><button class="success smallbtn" onclick="presentationAction('${x.current.id}','SUNG')">Marcar como cantada</button><button class="danger smallbtn" onclick="presentationAction('${x.current.id}','CANCEL')">Cancelar</button><button class="secondary smallbtn" onclick="editPresentation('${x.current.id}')">Editar</button></div></div>`:'<div class="notice">Nenhuma apresentação tocando agora.</div>';
- $('queueList').innerHTML=queueData.length?queueData.map(p=>`<article class="queuecard" draggable="true" data-id="${esc(p.id)}"><div class="position">${p.position}</div><div><h3>${esc(p.song)}</h3><p>Mesa ${p.table_number} • Comanda ${esc(p.tab_number||'—')} • ${esc((p.participants||[]).join(', '))}</p><p>Reserva: ${new Date(p.created_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} • Rodada: ${esc(p.round)} • Músicas já cantadas pela comanda: ${p.history_count}</p>${p.first_song_priority?'<span class="queue-priority">PRIMEIRA MÚSICA • PRIORIDADE</span>':`<span class="pill">${manualPosition(p)?'PRIORIDADE MANUAL':'RODÍZIO NORMAL'}</span>`}${p.hide_on_screen?'<span class="pill closed" style="margin-left:5px">OCULTA NO TELÃO ATÉ INICIAR</span>':''}</div><div class="queue-actions"><input class="inlinepos" type="number" min="1" max="${queueData.length}" value="${p.position}" aria-label="Posição" onchange="movePosition('${p.id}',this.value)"><button class="secondary smallbtn" onclick="movePosition('${p.id}',${p.position-1})">↑</button><button class="secondary smallbtn" onclick="movePosition('${p.id}',${p.position+1})">↓</button>${manualPosition(p)?`<button class="secondary smallbtn" onclick="unpinPosition('${p.id}')">Automático</button>`:''}<button class="success smallbtn" onclick="presentationAction('${p.id}','START')">Iniciar</button><button class="secondary smallbtn" onclick="editPresentation('${p.id}')">Editar</button><button class="success smallbtn" onclick="presentationAction('${p.id}','SUNG')">Cantada</button><button class="danger smallbtn" onclick="presentationAction('${p.id}','CANCEL')">Cancelar</button></div></article>`).join(''):'<p class="muted">Nenhuma apresentação aguardando.</p>';
+ $('queueList').innerHTML=queueData.length?queueData.map(p=>`<article class="queuecard" draggable="true" data-id="${esc(p.id)}"><div class="position">${p.position}</div><div><h3>${esc(p.song)}</h3><p>Mesa ${p.table_number} • Comanda ${esc(p.tab_number||'—')} • ${esc((p.participants||[]).join(', '))}</p><p>Reserva: ${new Date(p.created_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} • Músicas já cantadas pela comanda: ${p.history_count} • Espera: ${Number(p.wait_minutes||0)} min</p>${p.wait_priority?'<span class="queue-priority">ESPERA PRIORITÁRIA • 45+ MIN</span>':p.first_song_priority?'<span class="queue-priority">PRIMEIRA MÚSICA • PRIORIDADE</span>':`<span class="pill">${manualPosition(p)?'PRIORIDADE MANUAL':'RODÍZIO INTELIGENTE'}</span>`}${p.hide_on_screen?'<span class="pill closed" style="margin-left:5px">OCULTA NO TELÃO ATÉ INICIAR</span>':''}</div><div class="queue-actions"><input class="inlinepos" type="number" min="1" max="${queueData.length}" value="${p.position}" aria-label="Posição" onchange="movePosition('${p.id}',this.value)"><button class="secondary smallbtn" onclick="movePosition('${p.id}',${p.position-1})">↑</button><button class="secondary smallbtn" onclick="movePosition('${p.id}',${p.position+1})">↓</button>${manualPosition(p)?`<button class="secondary smallbtn" onclick="unpinPosition('${p.id}')">Automático</button>`:''}<button class="success smallbtn" onclick="presentationAction('${p.id}','START')">Iniciar</button><button class="secondary smallbtn" onclick="editPresentation('${p.id}')">Editar</button><button class="success smallbtn" onclick="presentationAction('${p.id}','SUNG')">Cantada</button><button class="danger smallbtn" onclick="presentationAction('${p.id}','CANCEL')">Cancelar</button></div></article>`).join(''):'<p class="muted">Nenhuma apresentação aguardando.</p>';
  const sung=x.sung||[];
  $('sungHistorySummary').textContent=`MÚSICAS JÁ CANTADAS NESTA NOITE (${sung.length})`;
  $('sungList').innerHTML=sung.length?sung.map(p=>`<div class="sung-item"><div><strong>${esc(p.song)}</strong><small>${esc([p.p1,p.p2,p.p3].filter(Boolean).join(', '))} • Mesa ${p.table_number} • Comanda ${esc(p.tab_number||'—')} • ${p.sung_at?new Date(p.sung_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'Horário não registrado'}</small></div><button class="secondary smallbtn" onclick="restorePresentation('${p.id}')">↩ Voltar para a fila</button></div>`).join(''):'<p class="muted" style="padding:12px 15px">Ainda não há músicas cantadas nesta noite.</p>'; wireDrag();
@@ -84,7 +90,7 @@ window.movePosition=async(id,pos)=>{try{const x=await api('admin.queue.move',{id
 window.presentationAction=async(id,operation)=>{if(operation==='CANCEL'&&!confirm('Cancelar esta apresentação? A comanda será liberada e a vaga devolvida.'))return;try{const x=await api('admin.presentation.action',{id,operation,confirmed:operation==='CANCEL'});renderQueue(x);if(x.dashboard)renderDashboard(x.dashboard)}catch(e){alert(e.message)}};
 window.restorePresentation=async id=>{if(!confirm('Devolver esta música à fila? Ela será posicionada depois das três primeiras, quando houver espaço.'))return;try{const x=await api('admin.presentation.restore',{id});renderQueue(x);if(x.dashboard)renderDashboard(x.dashboard)}catch(e){alert(e.message)}};
 window.editPresentation=id=>{const p=queueData.find(x=>x.id===id)||(currentQueueNow?.id===id?currentQueueNow:null);if(!p)return;showModal('EDITAR APRESENTAÇÃO',`<div class="field"><label>PARTICIPANTE 1</label><input id="editP1" value="${esc(p.p1)}"></div><div class="field"><label>PARTICIPANTE 2</label><input id="editP2" value="${esc(p.p2||'')}"></div><div class="field"><label>PARTICIPANTE 3</label><input id="editP3" value="${esc(p.p3||'')}"></div><div class="field"><label>MÚSICA</label><input id="editSong" value="${esc(p.song)}"></div><button id="saveEdit">Salvar alterações</button><div class="msg" id="editMessage"></div>`);$('saveEdit').onclick=async()=>{try{const x=await api('admin.presentation.edit',{id,p1:$('editP1').value,p2:$('editP2').value,p3:$('editP3').value,song:$('editSong').value});hideModal();renderQueue(x)}catch(e){message('editMessage',e.message)}}};
-$('refreshQueue').onclick=loadQueue;$('startNext').onclick=async()=>{try{const x=await api('admin.queue.startNext');renderQueue(x);if(x.dashboard)renderDashboard(x.dashboard)}catch(e){message('queueMessage',e.message)}};$('autoQueue').onclick=async()=>{try{const x=await api('admin.queue.auto');renderQueue(x);message('queueMessage','Rodízio automático ativo. Os ajustes manuais existentes foram preservados.')}catch(e){message('queueMessage',e.message)}};
+$('refreshQueue').onclick=loadQueue;$('startNext').onclick=async()=>{try{const x=await api('admin.queue.startNext');renderQueue(x);if(x.dashboard)renderDashboard(x.dashboard);if(x.finishedCurrent&&!x.startedNext)message('queueMessage','Música finalizada. Não há outra apresentação aguardando.')}catch(e){message('queueMessage',e.message)}};$('autoQueue').onclick=async()=>{try{const x=await api('admin.queue.auto');renderQueue(x);message('queueMessage','Rodízio automático ativo. Os ajustes manuais existentes foram preservados.')}catch(e){message('queueMessage',e.message)}};
 async function openManualSongModal(){
  try{
   if(!tables.length){const x=await api('admin.tables.list');tables=x.tables||[]}
@@ -113,7 +119,7 @@ async function loadHistory(){
   await fetchHistory();
  }catch(e){$('historyList').textContent=e.message}
 }
-function renderHistoryTabCards(items,selectedTab=''){
+function renderHistoryTabCards(items,selectedTab='',eventId=''){
  const host=$('historyTabCards');
  if(!host)return;
  if(!items?.length){
@@ -123,12 +129,35 @@ function renderHistoryTabCards(items,selectedTab=''){
  host.innerHTML=items.map(item=>{
   const tab=String(item.tabNumber||'');
   const active=tab.toUpperCase()===String(selectedTab||'').toUpperCase();
-  return `<button type="button" class="history-tab-card ${active?'active':''}" onclick="selectHistoryTab('${esc(tab)}')"><strong>COMANDA ${esc(tab)}</strong><span>${esc(item.name||'Participante')}</span><small>${Number(item.totalSongs)} ${Number(item.totalSongs)===1?'música cantada':'músicas cantadas'}</small></button>`;
+  const launched=Boolean(item.launched);
+  const partial=Boolean(item.partial);
+  const safeTab=encodeURIComponent(tab);
+  const safeEvent=encodeURIComponent(String(eventId||''));
+  const state=launched
+    ? '<span class="history-tab-state">✓ LANÇADO</span>'
+    : partial
+      ? '<span class="history-tab-state partial">LANÇAMENTO PARCIAL</span>'
+      : '<span class="history-tab-state partial">PENDENTE DE LANÇAMENTO</span>';
+  const markButton=item.markable
+    ? `<button type="button" class="secondary smallbtn history-tab-mark ${launched?'done':''}" onclick="toggleHistoryTab('${safeEvent}','${safeTab}',${!launched})">${launched?'✓ Lançado • desfazer':'Dar baixa • marcar como lançado'}</button>`
+    : '<small>Sem registros individuais para baixa</small>';
+  return `<article class="history-tab-card ${active?'active':''}"><button type="button" class="history-tab-select" onclick="selectHistoryTab(decodeURIComponent('${safeTab}'))"><strong>COMANDA ${esc(tab)}</strong><span>${esc(item.name||'Participante')}</span><small>${Number(item.totalSongs)} ${Number(item.totalSongs)===1?'música cantada':'músicas cantadas'}</small>${state}</button>${markButton}</article>`;
  }).join('');
 }
 window.selectHistoryTab=tab=>{
  $('historyTabNumber').value=tab;
  fetchHistory();
+};
+window.toggleHistoryTab=async(encodedEvent,encodedTab,registered)=>{
+ try{
+  const eventId=decodeURIComponent(encodedEvent);
+  const tabNumber=decodeURIComponent(encodedTab);
+  const result=await api('admin.history.markTab',{eventId,tabNumber,registered});
+  await fetchHistory();
+  message('historyMessage',registered
+    ? `Comanda ${tabNumber}: lançamento concluído (${result.updated} registros).`
+    : `Comanda ${tabNumber}: lançamento desfeito.`);
+ }catch(e){message('historyMessage',e.message)}
 };
 async function fetchHistory(){
  try{
@@ -141,7 +170,7 @@ async function fetchHistory(){
    $('historyTabSummary').classList.remove('hidden');
    $('historyTabSummary').innerHTML=`<span class="history-tab-number">COMANDA ${esc(summary.tabNumber)}</span><strong>${Number(summary.totalSongs)} ${Number(summary.totalSongs)===1?'MÚSICA CANTADA':'MÚSICAS CANTADAS'}</strong><span class="muted">nesta noite</span>`;
   }else if(!tabNumber){$('historyTabSummary').classList.add('hidden');$('historyTabSummary').textContent='';}
-  renderHistoryTabCards(x.tabSummaries||[],tabNumber);
+  renderHistoryTabCards(x.tabSummaries||[],tabNumber,eventId);
   const rows=x.presentations||[];
   if(!rows.length){$('historyList').innerHTML='<p class="muted">Nenhuma apresentação cantada encontrada neste evento.</p>';return}
   $('historyList').innerHTML=`<table><thead><tr><th>Horário em que cantou</th><th>Mesa</th><th>Comanda</th><th>Quem cantou</th><th>Música</th><th>Total acumulado</th><th>Controle de lançamento</th></tr></thead><tbody>${rows.map(p=>{const marked=Boolean(p.external_registered_at);return `<tr class="${marked?'history-registered':''}"><td>${p.sung_at?new Date(p.sung_at).toLocaleString('pt-BR'):'Horário não registrado'}</td><td>${p.table_number}</td><td>${esc(p.tab_number||'—')}</td><td><b>${esc(p.name||'—')}</b></td><td>${esc(p.song)}</td><td><span class="history-count">${p.song_number||1}ª música</span></td><td>${p.markable?`<button class="${marked?'success':'secondary'} smallbtn" onclick="toggleHistoryEntry('${p.id}',${!marked})">${marked?'✓ Lançado • desfazer':'Marcar como lançado'}</button>${marked?`<div class="muted" style="font-size:10px;margin-top:5px">Por ${esc(p.external_registered_by||'equipe')} • ${new Date(p.external_registered_at).toLocaleString('pt-BR')}</div>`:''}`:'<span class="muted">Histórico antigo sem cadastro individual</span>'}</td></tr>`}).join('')}</tbody></table>`;

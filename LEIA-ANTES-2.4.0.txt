@@ -1,0 +1,24 @@
+BLACK JACK KARAOKE — ATUALIZAÇÃO 2.4.0
+
+ESTA É UMA ATUALIZAÇÃO INCREMENTAL PARA O PROJETO ENVIADO.
+
+Substitua estes arquivos no projeto original:
+- netlify/functions/api.mjs
+- public/admin.html
+- public/telao.html
+- package.json
+
+Leia também ATUALIZACAO-2.4.0.md.
+
+BANCO DE DADOS:
+- Não execute SQL nesta atualização.
+- A baixa por comanda usa as colunas de controle de lançamento que já existem em participants.
+
+PUBLICAÇÃO:
+1. Extraia o ZIP.
+2. Copie os arquivos mantendo as pastas e substitua os correspondentes no projeto original.
+3. Abra o GitHub Desktop, confira as alterações e faça Commit.
+4. Clique em Push origin.
+5. Aguarde o deploy da Netlify ficar como Published.
+
+Não substitua nem apague a pasta .git, arquivos .env ou variáveis da Netlify.

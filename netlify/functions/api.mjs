@@ -130,7 +130,7 @@ async function queueForEvent(event) {
   const [{ data: rows, error: re }, { data: participants, error: pe }, { data: state, error: qe }] = await Promise.all([
     client.from('presentations').select('id,event_id,table_id,table_number,tab_number,p1,p2,p3,song,status,created_at,started_at,sung_at,manual_rank,manual_position,round_number,hide_on_screen').eq('event_id', event.id).in('status', ['PENDING', 'PLAYING', 'SUNG']).order('created_at'),
     client.from('participants').select('presentation_id,table_id,normalized_name,name').eq('event_id', event.id),
-    client.from('queue_state').select('manual_mode').eq('event_id', event.id).maybeSingle()
+    client.from('queue_state').select('manual_mode,last_sung_table_number').eq('event_id', event.id).maybeSingle()
   ]);
   if (re) throw re; if (pe) throw pe; if (qe) throw qe;
   const participantMap = new Map();
@@ -139,9 +139,9 @@ async function queueForEvent(event) {
     participantMap.get(p.presentation_id).push(p);
   }
 
-  // A ordem normal é cronológica e pertence à COMANDA, nunca à mesa.
-  // A primeira apresentação de uma comanda sem histórico recebe prioridade
-  // especial somente depois das três primeiras posições já preservadas.
+  // O histórico e a prioridade pertencem à COMANDA.
+  // A MESA é usada apenas para intercalar apresentações e evitar que uma mesa
+  // com muitos pedidos ocupe várias posições consecutivas.
   const sungRows = (rows || []).filter(x => x.status === 'SUNG');
   const songsByTab = new Map();
   for (const p of sungRows) {
@@ -151,6 +151,25 @@ async function queueForEvent(event) {
 
   const current = (rows || []).find(x => x.status === 'PLAYING') || null;
   const pending = (rows || []).filter(x => x.status === 'PENDING');
+
+  // Conta também a música em andamento e os pedidos anteriores da mesma comanda.
+  // Assim, se a pessoa enviar duas músicas antes de cantar a primeira, apenas
+  // a primeira recebe prioridade de estreante; a segunda entra no rodízio normal.
+  const projectedByTab = new Map();
+  const currentTabKey = String(current?.tab_number || '').trim().toUpperCase();
+  if (currentTabKey) projectedByTab.set(currentTabKey, 1);
+  const pendingInArrivalOrder = pending.slice().sort((a, b) =>
+    new Date(a.created_at || 0) - new Date(b.created_at || 0) ||
+    String(a.id).localeCompare(String(b.id))
+  );
+  for (const p of pendingInArrivalOrder) {
+    const key = String(p.tab_number || '').trim().toUpperCase();
+    const alreadyAhead = key ? Number(projectedByTab.get(key) || 0) : 0;
+    const sungCount = key ? Number(songsByTab.get(key) || 0) : 0;
+    p._songsSung = sungCount;
+    p._priorityCount = sungCount + alreadyAhead;
+    if (key) projectedByTab.set(key, alreadyAhead + 1);
+  }
 
   // Ajustes manuais continuam sendo exceções pontuais e são preservados.
   const manual = pending
@@ -163,33 +182,95 @@ async function queueForEvent(event) {
     );
   const manualIds = new Set(manual.map(x => x.id));
   const auto = pending.filter(x => !manualIds.has(x.id));
+  const nowMs = Date.now();
+  const WAIT_PRIORITY_MINUTES = 45;
 
   for (const p of auto) {
-    const key = String(p.tab_number || '').trim().toUpperCase();
-    p._songsSung = key ? Number(songsByTab.get(key) || 0) : 0;
+    const createdMs = new Date(p.created_at || nowMs).getTime();
+    p._waitMinutes = Number.isFinite(createdMs)
+      ? Math.max(0, Math.floor((nowMs - createdMs) / 60000))
+      : 0;
+    p._waitPriority = p._waitMinutes >= WAIT_PRIORITY_MINUTES;
   }
 
-  // Primeiro preserva a ordem de chegada de todas as comandas.
-  // A mesa não participa do cálculo, então a troca de mesa não altera a vez.
+  // As três primeiras músicas aguardando permanecem protegidas.
+  // A prioridade especial e o rodízio inteligente são aplicados da quarta em diante.
   const arrivalOrder = auto.slice().sort((a, b) =>
     new Date(a.created_at || 0) - new Date(b.created_at || 0) ||
     String(a.id).localeCompare(String(b.id))
   );
-
   const protectedFirstThree = arrivalOrder.slice(0, 3);
   const remaining = arrivalOrder.slice(3);
 
-  // Somente a primeira música de uma comanda sem histórico ganha prioridade.
-  // Depois que a comanda canta uma vez, seus próximos pedidos seguem a fila normal.
-  const firstSongs = remaining.filter(p =>
-    Boolean(String(p.tab_number || '').trim()) && p._songsSung === 0
-  );
-  const regular = remaining.filter(p =>
-    !String(p.tab_number || '').trim() || p._songsSung > 0
-  );
-  const prioritizedOrder = [...protectedFirstThree, ...firstSongs, ...regular];
+  // Monta uma fila por mesa. Dentro da mesma mesa, a comanda com menos músicas
+  // cantadas vem primeiro. Pedidos aguardando há 45 minutos ou mais ganham
+  // prioridade de espera, sem permitir que uma mesa monopolize a fila.
+  const tableQueues = new Map();
+  for (const p of remaining) {
+    const tableKey = p.table_number === null || p.table_number === undefined
+      ? '__SEM_MESA__'
+      : String(p.table_number);
+    if (!tableQueues.has(tableKey)) tableQueues.set(tableKey, []);
+    tableQueues.get(tableKey).push(p);
+  }
 
-  // Ajustes manuais permanecem como posições pontuais, sem desligar o automático.
+  const comparePending = (a, b) => {
+    if (a._waitPriority !== b._waitPriority) return a._waitPriority ? -1 : 1;
+    if (a._waitPriority && b._waitPriority && a._waitMinutes !== b._waitMinutes) {
+      return b._waitMinutes - a._waitMinutes;
+    }
+    return Number(a._priorityCount || 0) - Number(b._priorityCount || 0) ||
+      new Date(a.created_at || 0) - new Date(b.created_at || 0) ||
+      String(a.id).localeCompare(String(b.id));
+  };
+  for (const items of tableQueues.values()) items.sort(comparePending);
+
+  const compareTableKeys = (a, b) => {
+    if (a === '__SEM_MESA__') return 1;
+    if (b === '__SEM_MESA__') return -1;
+    const an = Number(a), bn = Number(b);
+    if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn;
+    return a.localeCompare(b, 'pt-BR', { numeric: true });
+  };
+
+  // Começa pela mesa seguinte à última que cantou. No início da noite,
+  // sem histórico de mesa, a ordem natural começa pela mesa 1.
+  const tableKeys = [...tableQueues.keys()].sort(compareTableKeys);
+  const lastTable = Number(state?.last_sung_table_number);
+  const hasLastTable = Number.isFinite(lastTable);
+  const cyclicTableKeys = hasLastTable
+    ? [
+        ...tableKeys.filter(key => key !== '__SEM_MESA__' && Number(key) > lastTable),
+        ...tableKeys.filter(key => key !== '__SEM_MESA__' && Number(key) <= lastTable),
+        ...tableKeys.filter(key => key === '__SEM_MESA__')
+      ]
+    : tableKeys;
+  const tableRank = new Map(cyclicTableKeys.map((key, index) => [key, index]));
+
+  const roundRobin = [];
+  while (true) {
+    const heads = [...tableQueues.entries()]
+      .filter(([, items]) => items.length)
+      .map(([key, items]) => ({ key, next: items[0] }));
+    if (!heads.length) break;
+
+    // Menos músicas cantadas tem preferência; em empate, respeita a rotação
+    // das mesas. Cada mesa fornece no máximo uma música por rodada.
+    heads.sort((a, b) =>
+      comparePending(a.next, b.next) ||
+      (tableRank.get(a.key) ?? Number.MAX_SAFE_INTEGER) -
+        (tableRank.get(b.key) ?? Number.MAX_SAFE_INTEGER)
+    );
+
+    for (const head of heads) {
+      const item = tableQueues.get(head.key).shift();
+      if (item) roundRobin.push(item);
+    }
+  }
+
+  const prioritizedOrder = [...protectedFirstThree, ...roundRobin];
+
+  // Ajustes manuais continuam preservados como posições pontuais.
   const mergedOrder = prioritizedOrder.slice();
   for (const p of manual) {
     const rawPosition = p.manual_position ?? (Number(p.manual_rank) / 1000);
@@ -207,14 +288,16 @@ async function queueForEvent(event) {
     return {
       ...p,
       position: index + 1,
-      round: manualIds.has(p.id) ? 'Manual' : 'Comanda',
+      round: manualIds.has(p.id) ? 'Manual' : 'Rodízio por mesa/comanda',
       history_count: count,
-      first_song_priority: Boolean(key) && count === 0 && index >= 3 && !manualIds.has(p.id),
+      wait_minutes: Number(p._waitMinutes || 0),
+      wait_priority: Boolean(p._waitPriority),
+      first_song_priority: Boolean(key) && Number(p._priorityCount ?? count) === 0 && index >= 3 && !manualIds.has(p.id),
       participants: (participantMap.get(p.id) || []).map(m => m.name)
     };
   });
   const last = sungRows.sort((a, b) => new Date(b.sung_at || b.created_at) - new Date(a.sung_at || a.created_at))[0] || null;
-  const clean = p => p ? ({ id: p.id, table_number: p.table_number, tab_number: p.tab_number, p1: p.p1, p2: p.p2, p3: p.p3, song: p.song, status: p.status, created_at: p.created_at, started_at: p.started_at, sung_at: p.sung_at, hide_on_screen: Boolean(p.hide_on_screen) }) : null;
+  const clean = p => p ? ({ id: p.id, table_number: p.table_number, tab_number: p.tab_number, p1: p.p1, p2: p.p2, p3: p.p3, song: p.song, status: p.status, created_at: p.created_at, started_at: p.started_at, sung_at: p.sung_at, hide_on_screen: Boolean(p.hide_on_screen), wait_minutes: Number(p.wait_minutes || 0), wait_priority: Boolean(p.wait_priority), history_count: Number(p.history_count || 0), first_song_priority: Boolean(p.first_song_priority) }) : null;
   const sung = sungRows
     .slice()
     .sort((a, b) => new Date(b.sung_at || b.created_at) - new Date(a.sung_at || a.created_at))
@@ -354,7 +437,7 @@ async function screenStatus() {
   const { data: raffle, error: re } = await db().from('raffles').select('id,status,requested_winners,created_at,reveal_at,results_ready').eq('event_id', event.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
   if (re) throw re;
   let rafflePayload = null;
-  if (raffle && (raffle.status === 'RUNNING' || Date.now() - new Date(raffle.created_at).getTime() < 60000)) {
+  if (raffle && (raffle.status === 'RUNNING' || Date.now() - new Date(raffle.created_at).getTime() < Math.max(120000, Number(raffle.requested_winners || 1) * 6500 + 20000))) {
     if (raffle.status === 'RUNNING' && raffle.results_ready && raffle.reveal_at && new Date(raffle.reveal_at).getTime() <= Date.now()) {
       await db().from('raffles').update({ status: 'FINISHED', finished_at: new Date().toISOString() }).eq('id', raffle.id);
       raffle.status = 'FINISHED';
@@ -746,11 +829,45 @@ async function handleAdmin(action, body, req) {
     if (error) throw error; return { ok: true, ...(await adminQueue(event)), result: data };
   }
   if (action === 'admin.queue.startNext') {
-    const event = await eventForPublic(); if (!event) throw new Error('Não existe evento ativo.');
-    const q = await adminQueue(event); if (q.current) throw new Error('Já existe uma apresentação tocando agora.');
-    const next = q.queue[0]; if (!next) throw new Error('Não há apresentações aguardando.');
-    const { error } = await db().rpc('bj_presentation_action', { p_action: 'START', p_presentation_id: next.id, p_actor: admin.display_name });
-    if (error) throw error; return { ok: true, ...(await adminQueue(event)), dashboard: await dashboard() };
+    const event = await eventForPublic();
+    if (!event) throw new Error('Não existe evento ativo.');
+
+    let q = await adminQueue(event);
+    let finishedCurrent = false;
+    if (q.current) {
+      const { error: finishError } = await db().rpc('bj_presentation_action', {
+        p_action: 'SUNG',
+        p_presentation_id: q.current.id,
+        p_actor: admin.display_name
+      });
+      if (finishError) throw finishError;
+      finishedCurrent = true;
+
+      // Recalcula a fila após concluir a música, pois o total da comanda mudou.
+      q = await adminQueue(event);
+    }
+
+    const next = q.queue[0] || null;
+    let startedNext = false;
+    if (next) {
+      const { error: startError } = await db().rpc('bj_presentation_action', {
+        p_action: 'START',
+        p_presentation_id: next.id,
+        p_actor: admin.display_name
+      });
+      if (startError) throw startError;
+      startedNext = true;
+    } else if (!finishedCurrent) {
+      throw new Error('Não há apresentações aguardando.');
+    }
+
+    return {
+      ok: true,
+      finishedCurrent,
+      startedNext,
+      ...(await adminQueue(event)),
+      dashboard: await dashboard()
+    };
   }
   if (action === 'admin.queue.move') {
     const event = await eventForPublic(); if (!event) throw new Error('Não existe evento ativo.');
@@ -854,6 +971,28 @@ async function handleAdmin(action, body, req) {
       if (!byPresentation.has(person.presentation_id)) byPresentation.set(person.presentation_id, []);
       byPresentation.get(person.presentation_id).push(person);
     }
+
+    // O cartão da comanda só fica como lançado quando todos os registros
+    // das apresentações cantadas daquela comanda estiverem baixados.
+    for (const summary of tabSummaries) {
+      const commandKey = String(summary.tabNumber || '').trim().toUpperCase();
+      const commandPresentations = (presentations || []).filter(p =>
+        String(p.tab_number || '').trim().toUpperCase() === commandKey
+      );
+      const commandPeople = commandPresentations.flatMap(p => byPresentation.get(p.id) || []);
+      const everySongHasPeople = commandPresentations.length > 0 &&
+        commandPresentations.every(p => (byPresentation.get(p.id) || []).length > 0);
+      const markedPeople = commandPeople.filter(p => Boolean(p.external_registered_at));
+      summary.markable = everySongHasPeople && commandPeople.length > 0;
+      summary.markedCount = markedPeople.length;
+      summary.peopleCount = commandPeople.length;
+      summary.partial = markedPeople.length > 0 && markedPeople.length < commandPeople.length;
+      summary.launched = summary.markable && markedPeople.length === commandPeople.length;
+      summary.registeredBy = summary.launched
+        ? (markedPeople[markedPeople.length - 1]?.external_registered_by || null)
+        : null;
+    }
+
     const rows = [];
     for (const presentation of presentations || []) {
       const members = byPresentation.get(presentation.id) || [];
@@ -886,6 +1025,53 @@ async function handleAdmin(action, body, req) {
     }
     rows.sort((a, b) => new Date(b.sung_at || 0) - new Date(a.sung_at || 0));
     return { ok: true, presentations: rows, tabSummary, tabSummaries };
+  }
+  if (action === 'admin.history.markTab') {
+    assertFull(admin);
+    const eventId = text(body.eventId);
+    const tabNumber = text(body.tabNumber).toUpperCase();
+    if (!eventId || !tabNumber) throw new Error('Selecione uma noite e informe a comanda.');
+    if (typeof body.registered !== 'boolean') throw new Error('Informe se a comanda será lançada ou desfeita.');
+
+    const { data: presentations, error: presentationsError } = await db()
+      .from('presentations')
+      .select('id')
+      .eq('event_id', eventId)
+      .eq('tab_number', tabNumber)
+      .eq('status', 'SUNG');
+    if (presentationsError) throw presentationsError;
+    const presentationIds = (presentations || []).map(p => p.id);
+    if (!presentationIds.length) throw new Error('Esta comanda ainda não possui músicas cantadas nesta noite.');
+
+    const { data: people, error: peopleError } = await db()
+      .from('participants')
+      .select('id,presentation_id')
+      .eq('event_id', eventId)
+      .in('presentation_id', presentationIds);
+    if (peopleError) throw peopleError;
+    const participantIds = (people || []).map(p => p.id);
+    if (!participantIds.length) throw new Error('Não existem registros individuais para dar baixa nesta comanda.');
+    const presentationCoverage = new Set((people || []).map(p => p.presentation_id).filter(Boolean));
+    if (presentationIds.some(id => !presentationCoverage.has(id))) {
+      throw new Error('Há uma música desta comanda sem registro individual. Atualize o histórico antes de dar baixa.');
+    }
+
+    const changes = body.registered
+      ? { external_registered_at: new Date().toISOString(), external_registered_by: admin.display_name }
+      : { external_registered_at: null, external_registered_by: null };
+    const { data: updated, error: updateError } = await db()
+      .from('participants')
+      .update(changes)
+      .in('id', participantIds)
+      .select('id');
+    if (updateError) throw updateError;
+
+    await audit(admin.display_name,
+      body.registered ? 'HISTORY_TAB_REGISTERED' : 'HISTORY_TAB_UNREGISTERED',
+      { event_id: eventId, tab_number: tabNumber, presentation_count: presentationIds.length, participant_count: participantIds.length },
+      eventId
+    );
+    return { ok: true, updated: (updated || []).length, presentations: presentationIds.length };
   }
   if (action === 'admin.history.mark') {
     const participantId = text(body.participantId);
