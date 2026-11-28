@@ -1,0 +1,13 @@
+BLACK JACK KARAOKÊ — PATCH 2.4.1
+
+1. Extraia este ZIP.
+2. Copie as pastas/arquivos para dentro da pasta do projeto, mantendo a estrutura.
+3. Confirme a substituição de public/telao.html, public/index.html e package.json.
+4. Não execute SQL: esta atualização não altera o banco.
+5. No GitHub Desktop, faça Commit e depois Push origin.
+6. Aguarde a publicação da Netlify.
+
+Resumo:
+- Sorteio: um vencedor novo a cada 8 segundos; os cartões anteriores permanecem; ao final todos ficam visíveis.
+- Agradecimento: até três datas entram uma a uma, com 3 segundos entre elas; ficam visíveis por 10 segundos após a última entrada e saem suavemente antes de repetir.
+- QR Code: a página do cliente mostra MESA X abaixo de “Sua vez de brilhar!”, usando a mesa validada pelo token do QR Code.
